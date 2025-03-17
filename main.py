@@ -64,7 +64,7 @@ def run(settings: SettingsTraining):
     # model
     if settings.problem == "2stages":
         if settings.use_ecnn:
-            model = G_UNet(in_channels=input_channels).float()
+            model = G_UNet(in_channels=input_channels,rotation_n=4).float()
         else:
             model = UNet(in_channels=input_channels).float()
     elif settings.problem in ["extend1", "extend2"]:

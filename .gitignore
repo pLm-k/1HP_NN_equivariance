@@ -171,3 +171,5 @@ dmypy.json
 
 # run scripts
 run*.sh
+
+paths.yaml
