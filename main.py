@@ -13,6 +13,7 @@ from data_stuff.utils import SettingsTraining, load_yaml
 from networks.unet import UNet, UNetBC
 from networks.unetHalfPad import UNetHalfPad
 from networks.equivariantCNN import G_UNet
+from networks.continous_equivariantCNN import Cont_G_UNet
 from processing.solver import Solver
 from processing.rotation import rotate_and_infer
 from preprocessing.prepare import prepare_data_and_paths
@@ -64,7 +65,9 @@ def run(settings: SettingsTraining):
     # model
     if settings.problem == "2stages":
         if settings.use_ecnn:
-            model = G_UNet(in_channels=input_channels,rotation_n=4).float()
+            model = G_UNet(in_channels=input_channels, init_features=32,rotation_n=4).float()
+        elif settings.use_ecnn_cont:
+            model = Cont_G_UNet(in_channels=input_channels, init_features=32,max_freq=4).float()
         else:
             model = UNet(in_channels=input_channels).float()
     elif settings.problem in ["extend1", "extend2"]:
@@ -78,7 +81,7 @@ def run(settings: SettingsTraining):
         loss_fn = MSELoss()
         # training
         finetune = True if settings.case == "finetune" else False
-        solver = Solver(model, dataloaders["train"], dataloaders["val"], loss_func=loss_fn, finetune=finetune, use_ecnn=settings.use_ecnn)
+        solver = Solver(model, dataloaders["train"], dataloaders["val"], loss_func=loss_fn, finetune=finetune, settings=settings)
         try:
             solver.load_lr_schedule(settings.destination / "learning_rate_history.csv", settings.case_2hp)
             times["time_initializations"] = time.perf_counter()
@@ -132,6 +135,8 @@ def save_inference(model_name:str, in_channels: int, settings: SettingsTraining)
     if settings.problem == "2stages":
         if settings.use_ecnn:
             model = G_UNet(in_channels=in_channels).float()
+        elif settings.use_ecnn_cont:
+            model = Cont_G_UNet(in_channels=in_channels).float()
         else:
             model = UNet(in_channels=in_channels).float()
     elif settings.problem in ["extend1", "extend2"]:
@@ -187,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--len_box", type=int, default=256)
     parser.add_argument("--skip_per_dir", type=int, default=256)
     parser.add_argument("--augmentation_n", type=int, default=0)
-    parser.add_argument("--equivariance_case", type=str, choices=["none", "oriented_boxes", "ecnn"], default="none",
+    parser.add_argument("--equivariance_case", type=str, choices=["none", "oriented_boxes", "ecnn", "ecnn_cont"], default="none",
         help=(
             "Specifies the equivariance configuration:\n"
             "- 'none': No equivariance is applied.\n"
@@ -203,6 +208,7 @@ if __name__ == "__main__":
     #set equivariance case internally
     args.rotate_inference = args.equivariance_case == "oriented_boxes"
     args.use_ecnn = args.equivariance_case == "ecnn"
+    args.use_ecnn_cont = args.equivariance_case == "ecnn_cont"
     
     #set augmentation_n to 0 if one of the other equivariance methods was chosen
     if args.equivariance_case != "none":

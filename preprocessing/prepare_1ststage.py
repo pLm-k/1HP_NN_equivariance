@@ -88,8 +88,13 @@ def prepare_dataset(paths: Union[Paths1HP, Paths2HP], inputs: str, power2trafo: 
     data_paths, runs = detect_datapoints(paths.raw_path)
     total = len(data_paths)
     for data_path, run in tqdm(zip(data_paths, runs), desc="Converting", total=total):
-        x = load_data(data_path, time_first, inputs, dims)
-        y = load_data(data_path, time_steady_state, output_variables, dims)
+        try:
+            x = load_data(data_path, time_first, inputs, dims)
+            y = load_data(data_path, time_steady_state, output_variables, dims)
+        except Exception as e:
+            logging.warning(f"Run {run} skipped due to error: {e}")
+            continue
+        
         loc_hp = get_hp_location(x)
         x = transforms(x, loc_hp=loc_hp)
         if info is None: calc.add_data(x) 

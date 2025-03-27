@@ -18,6 +18,7 @@ from data_stuff.utils import SettingsTraining
 from networks.unet import weights_init, UNet
 import networks.unet as unet
 import networks.equivariantCNN as ecnn
+import networks.continous_equivariantCNN as cont_ecnn
 from networks.unetHalfPad import UNetHalfPad
 
 @dataclass
@@ -30,7 +31,7 @@ class Solver(object):
     opt: Optimizer = Adam
     finetune: bool = False
     best_model_params: dict = None
-    use_ecnn: bool = False
+    settings: SettingsTraining = None
 
     def __post_init__(self):
         self.opt = self.opt(self.model.parameters(),
@@ -39,8 +40,10 @@ class Solver(object):
         self.lr_schedule = {0: self.opt.param_groups[0]["lr"]}
 
         if not self.finetune:
-            if self.use_ecnn:
+            if self.settings.use_ecnn:
                 self.model.apply(ecnn.weights_init)
+            elif self.settings.use_ecnn_cont:
+                self.model.apply(cont_ecnn.weights_init)
             else:
                 self.model.apply(unet.weights_init)
 

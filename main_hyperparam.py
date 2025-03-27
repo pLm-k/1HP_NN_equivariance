@@ -14,6 +14,7 @@ from data_stuff.utils import SettingsTraining, load_yaml
 from networks.unet import UNet, UNetBC
 from networks.unetHalfPad import UNetHalfPad
 from networks.equivariantCNN import G_UNet
+from networks.continous_equivariantCNN import Cont_G_UNet
 from processing.solver import Solver
 from processing.rotation import rotate_and_infer
 from preprocessing.prepare import prepare_data_and_paths
@@ -22,18 +23,18 @@ from postprocessing.measurements import measure_loss, save_all_measurements
 
 sweep_config = {
     'method': 'grid',
-    "name": "1HP_NN_hyperparam",
+    "name": "1HP_NN_features",
     "metric": {"name": "val RMSE", "goal": "minimize"},
     }
 parameters_dict = {
-    'depth': {
-        'values': [3] #2,3,4
+    'init_features': {
+        'values': [64] #2,3,4
         },
     'rotation_n': {
           'values': [4] #2,4,8
         }}
 sweep_config['parameters'] = parameters_dict
-sweep_id = wandb.sweep(sweep_config, entity='1hpnn', project="hyperparam_opt_test")
+sweep_id = wandb.sweep(sweep_config, entity='1hpnn', project="hyperparam_features")
 settings_global = None
 
 def init_data(settings: SettingsTraining, seed=1):
@@ -70,9 +71,12 @@ def init_data(settings: SettingsTraining, seed=1):
 
 
 def run_eval(config = None):
-    model_name = 'ECNN' if settings_global.use_ecnn else 'CNN'
-    model_name += '_MASK' if settings_global.mask else '_NO_MASK'
-    model_name += f'_AUG-{settings_global.augmentation_n}'
+    if settings_global.use_ecnn:
+        model_name = 'ECNN'
+    elif settings_global.use_ecnn_cont:
+        model_name = 'C-ECNN'
+    else:
+        model_name = 'CNN'
     with wandb.init(config=config, tags=[model_name]):
         config = wandb.config
         settings = settings_global
@@ -86,9 +90,11 @@ def run_eval(config = None):
         # model
         if settings.problem == "2stages":
             if settings.use_ecnn:
-                model = G_UNet(in_channels=input_channels, depth=config.depth, rotation_n=config.rotation_n).float()
+                model = G_UNet(in_channels=input_channels, init_features=config.init_features, rotation_n=config.rotation_n).float()
+            elif settings.use_ecnn_cont:
+                model = Cont_G_UNet(in_channels=input_channels, init_features=config.init_features,max_freq=config.rotation_n).float()
             else:
-                model = UNet(in_channels=input_channels, depth=config.depth).float()
+                model = UNet(in_channels=input_channels, init_features=config.init_features).float()
         elif settings.problem in ["extend1", "extend2"]:
             model = UNetHalfPad(in_channels=input_channels).float()
         if settings.case in ["test", "finetune"]:
@@ -100,7 +106,7 @@ def run_eval(config = None):
             loss_fn = MSELoss()
             # training
             finetune = True if settings.case == "finetune" else False
-            solver = Solver(model, dataloaders["train"], dataloaders["val"], loss_func=loss_fn, finetune=finetune, use_ecnn=settings.use_ecnn)
+            solver = Solver(model, dataloaders["train"], dataloaders["val"], loss_func=loss_fn, finetune=finetune, settings=settings)
             try:
                 solver.load_lr_schedule(settings.destination / "learning_rate_history.csv", settings.case_2hp)
                 times["time_initializations"] = time.perf_counter()
@@ -148,7 +154,7 @@ if __name__ == "__main__":
     parser.add_argument("--len_box", type=int, default=256)
     parser.add_argument("--skip_per_dir", type=int, default=256)
     parser.add_argument("--augmentation_n", type=int, default=0)
-    parser.add_argument("--equivariance_case", type=str, choices=["none", "oriented_boxes", "ecnn"], default="none",
+    parser.add_argument("--equivariance_case", type=str, choices=["none", "oriented_boxes", "ecnn", "ecnn_cont"], default="none",
         help=(
             "Specifies the equivariance configuration:\n"
             "- 'none': No equivariance is applied.\n"
@@ -164,6 +170,7 @@ if __name__ == "__main__":
     #set equivariance case internally
     args.rotate_inference = args.equivariance_case == "oriented_boxes"
     args.use_ecnn = args.equivariance_case == "ecnn"
+    args.use_ecnn_cont = args.equivariance_case == "ecnn_cont"
     
     #set augmentation_n to 0 if one of the other equivariance methods was chosen
     if args.equivariance_case != "none":

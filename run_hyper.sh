@@ -8,6 +8,11 @@
 #SBATCH --time=24:00:00
 
 #module load cuda/12.2.2
-source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
+#source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
 
-python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_random_dir --augmentation_n -1 --inputs pksi --epochs 1000
+python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_random_dir \
+    --inputs pksi \
+    --equivariance_case ecnn_cont \
+    --destination '/import/sgs.scratch/miliczpl/models/cont/ecnn_m-f8_f64_1000' \
+    --device 'cuda:0'\
+    --epochs 5000

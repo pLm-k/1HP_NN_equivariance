@@ -38,6 +38,7 @@ class SettingsTraining:
     augmentation_n: int = 0
     rotate_inference: bool = False
     use_ecnn: bool = False
+    use_ecnn_cont: bool = False
     mask: bool = False
     rotate_inputs: int = 0
     data_n: int = -1

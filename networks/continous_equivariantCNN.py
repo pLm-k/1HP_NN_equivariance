@@ -1,11 +1,12 @@
 from torch import save, load, equal, randn, tensor
 
+import torch
 import torch.nn as nn
 import pathlib
 from escnn import gspaces
 from escnn import nn as enn
 
-class G_UNet(nn.Module):
+class Cont_G_UNet(nn.Module):
     def __init__(self, in_channels : int =2, out_channels : int =1, init_features : int=32, depth : int=3, kernel_size : int=5, max_freq : int=4):
         """
         Creates an equivariant UNet.
@@ -18,12 +19,12 @@ class G_UNet(nn.Module):
             kernel_size (int): Kernel size for convolutional layers.
             rotation_n (int): Number of rotations denoting the cyclic group Cn used.
         """
-        super(G_UNet, self).__init__()
+        super(Cont_G_UNet, self).__init__()
     
         # mandatory input
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.channels = [int(4*pow(2,i)) for i in range(0,depth)]
+        self.channels = [int(init_features/(2*max_freq)*pow(2,i)) for i in range(0,depth)]
         self.kernel_size = kernel_size
 
         # set the model equivariance under rotations by specified cyclic group
@@ -48,7 +49,7 @@ class G_UNet(nn.Module):
             self.enc_conv.append(self._block(enc_types[i-1], enc_types[i], kernel_size=self.kernel_size))
             
             # create pooling seperatly
-            self.enc_pool.append(enn.PointwiseAvgPool2D(enc_types[i], kernel_size=2, stride=2))           
+            self.enc_pool.append(enn.NormMaxPool(enc_types[i], kernel_size=2, stride=2))           
             
         # create bottleneck
         mid_type = enn.FieldType(self.r2_act, 2*enc_dims[-1]*self.r2_act.irreps)
@@ -114,9 +115,10 @@ class G_UNet(nn.Module):
     # build a UNet block consisting of 3 convolutional layers with ReLU and a single batch norm 
     def _block(self, in_type : enn.FieldType, out_type : enn.FieldType, kernel_size :int = 5) -> enn.SequentialModule:
         return enn.SequentialModule(
-            *self.get_layer(in_type, out_type, kernel_size=kernel_size),
-            *self.get_layer(out_type, out_type, bn=True, kernel_size=kernel_size),
-            *self.get_layer(out_type, out_type, kernel_size=kernel_size)
+            *self.get_layer(in_type, out_type, bn=True, kernel_size=kernel_size)
+            ##*self.get_layer(in_type, out_type, kernel_size=kernel_size),
+            ##*self.get_layer(out_type, out_type, bn=True, kernel_size=kernel_size),
+            ##*self.get_layer(out_type, out_type, kernel_size=kernel_size)
         )
     
     def _upsample_conv(self, in_type : enn.FieldType, out_type : enn.FieldType, kernel_size : int = 3) -> enn.SequentialModule:
@@ -179,8 +181,11 @@ class G_UNet(nn.Module):
         return x
 
     def load(self, model_path:pathlib.Path, device:str = "cpu", model_name: str = "model.pt"):
-            self.load_state_dict(load(model_path/model_name))
-            self.to(device)
+        state_dict = load(model_path / model_name)
+        for key in state_dict.keys():
+            if isinstance(state_dict[key], torch.Tensor):
+                state_dict[key] = state_dict[key].clone().contiguous()
+        self.to(device)
 
     def save(self, path:pathlib.Path, model_name: str = "model.pt"):
         save(self.state_dict(), path/model_name)
