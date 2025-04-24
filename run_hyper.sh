@@ -4,15 +4,15 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --nodelist=simcl1n1
-#SBATCH --time=24:00:00
+#SBATCH --nodelist=simcl1n2
+#SBATCH --time=48:00:00
 
 #module load cuda/12.2.2
-#source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
+source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
 
-python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_random_dir \
+python main_hyperparam.py --dataset_raw dataset_square_3000dp_p_rotate_res5 \
     --inputs pksi \
-    --equivariance_case ecnn_cont \
-    --destination '/import/sgs.scratch/miliczpl/models/cont/ecnn_m-f8_f64_1000' \
+    --equivariance_case oriented_boxes \
     --device 'cuda:0'\
-    --epochs 5000
+    --epochs 3000 \
+    --destination '/import/sgs.scratch/miliczpl/models/cnn_3000_oriented_boxes' \

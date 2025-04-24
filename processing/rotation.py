@@ -7,12 +7,7 @@ import math
 
 # function to rotate one datapoint counter-clockwise (with pressure as input)
 def rotate(data : torch.tensor, angle : int) -> torch.tensor:
-    data_out = torch.zeros_like(data)
-    # rotate all scalar fields
-    for i in range(data.shape[0]):
-        data_out[i] = TF.rotate(data[i].unsqueeze(0), angle, interpolation = InterpolationMode.BILINEAR).squeeze(0) #interpolation = InterpolationMode.BILINEAR
-    
-    return data_out
+    return TF.rotate(data, angle, interpolation = InterpolationMode.BILINEAR)
 
 # rotate a datapoint such that direction matches specified direction and return rerotated prediction (with pressure as input)
 def rotate_and_infer(datapoint : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str) -> torch.tensor:
@@ -21,29 +16,17 @@ def rotate_and_infer(datapoint : torch.tensor, grad_vec : list, model : torch.nn
     x = rotate(datapoint, angle)
 
     # get inference
-    x = x.to(device).unsqueeze(0)
-    y_out = model(x).to(device)
+    y_out = model(x.unsqueeze(0))
 
     # rotate result back
-    y_out = rotate(y_out.cpu().detach(), 360 - angle)
+    y_out = rotate(y_out, 360 - angle)
     return y_out
 
 # rotate a batch such that direction matches specified direction and return rerotated inference (with pressure as input)
 def rotate_and_infer_batch(batch : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str) -> torch.tensor:
     y_out_list = []
-    
     for datapoint in batch:
-        #calculate gradient and get angle for aligning data point
-        angle = get_rotation_angle(get_pressure_grad(datapoint,info), grad_vec)
-        x = rotate(datapoint, angle)
-
-        #get inference
-        x = x.to(device).unsqueeze(0)
-        y_out = model(x).to(device)
-
-        #rotate result back
-        y_out = rotate(y_out.cpu().detach(), 360 - angle).squeeze(0)
-        y_out_list.append(y_out)
+        y_out_list.append(rotate_and_infer(datapoint, grad_vec, model, info, device).squeeze(0))
     return torch.stack(y_out_list)
 
 # get angle to rotate a counter-clockwise to match b's direction

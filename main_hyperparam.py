@@ -28,10 +28,10 @@ sweep_config = {
     }
 parameters_dict = {
     'init_features': {
-        'values': [64] #2,3,4
+        'values': [32] #2,3,4
         },
     'rotation_n': {
-          'values': [4] #2,4,8
+          'values': [0] #2,4,8
         }}
 sweep_config['parameters'] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity='1hpnn', project="hyperparam_features")
@@ -53,6 +53,7 @@ def init_data(settings: SettingsTraining, seed=1):
     #     split_ratios = [0.0, 0.0, 1.0]
 
     if settings.rotate_inference and settings.case == 'train':
+        print('Rotating data for training')
         dataset = TrainDataset.rotate_data(dataset)
         
     datasets = random_split(dataset, get_splits(len(dataset), split_ratios), generator=generator)
