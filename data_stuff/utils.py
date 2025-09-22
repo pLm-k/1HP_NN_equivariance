@@ -1,4 +1,3 @@
-import os
 import pathlib
 from dataclasses import dataclass
 from typing import Dict

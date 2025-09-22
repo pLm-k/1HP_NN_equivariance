@@ -4,18 +4,18 @@ import multiprocessing
 import numpy as np
 import time
 import torch
-import yaml
 from torch.utils.data import DataLoader, random_split
 from torch.nn import MSELoss
 
-from data_stuff.dataset import SimulationDataset, TrainDataset, DatasetExtend1, DatasetExtend2, get_splits
+from data_stuff.dataset import SimulationDataset, DatasetExtend1, DatasetExtend2, get_splits
+from data_stuff.augmentation import DataAugmentation
 from data_stuff.utils import SettingsTraining, load_yaml
-from networks.unet import UNet, UNetBC
+from networks.unet import UNet
 from networks.unetHalfPad import UNetHalfPad
 from networks.equivariantCNN import G_UNet
 from networks.continous_equivariantCNN import Cont_G_UNet
 from processing.solver import Solver
-from processing.rotation import rotate_and_infer
+from processing.rotation import RotationProcessor
 from preprocessing.prepare import prepare_data_and_paths
 from postprocessing.visualization import plot_avg_error_cellwise, plot_avg_error_rotated_cellwise, visualizations, infer_all_and_summed_pic, infer_all_rotate_and_summed_pic
 from postprocessing.measurements import measure_loss, save_all_measurements
@@ -37,15 +37,15 @@ def init_data(settings: SettingsTraining, seed=1):
 
     # rotate data for Oriented Boxes approach
     if settings.rotate_inference and settings.case == 'train':
-        dataset = TrainDataset.rotate_data(dataset)
+        dataset = DataAugmentation.rotate_data(dataset)
         
     datasets = random_split(dataset, get_splits(len(dataset), split_ratios), generator=generator)
     dataloaders = {}
     try:
-        dataloaders["train"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
-        dataloaders["val"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["train"] = DataLoader(DataAugmentation.augment_data(DataAugmentation.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["val"] = DataLoader(DataAugmentation.augment_data(DataAugmentation.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
     except: pass
-    dataloaders["test"] = DataLoader(TrainDataset.augment_data(datasets[2], 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=False, num_workers=0)
+    dataloaders["test"] = DataLoader(DataAugmentation.augment_data(datasets[2], 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=False, num_workers=0)
 
     print('!------------------------------------------------------------------------------------------------------------------!')
     print(f'Dataset restricted to size: train:{len(dataloaders["train"])}, validation:{len(dataloaders["val"])}, test:{len(dataloaders["test"])}')
@@ -130,8 +130,9 @@ def run(settings: SettingsTraining):
     
     return model
 
-def save_inference(model_name:str, in_channels: int, settings: SettingsTraining):
-    # push all datapoints through and save all outputs
+def save_inference(model_name: str, in_channels: int, settings: SettingsTraining):
+    """Save inference results with simplified device handling."""
+    # Initialize model
     if settings.problem == "2stages":
         if settings.use_ecnn:
             model = G_UNet(in_channels=in_channels).float()
@@ -141,33 +142,40 @@ def save_inference(model_name:str, in_channels: int, settings: SettingsTraining)
             model = UNet(in_channels=in_channels).float()
     elif settings.problem in ["extend1", "extend2"]:
         model = UNetHalfPad(in_channels=in_channels).float()
+    
     model.load(model_name, settings.device)
     model.eval()
+    model.to(settings.device)
 
     data_dir = settings.dataset_prep
     (data_dir / "Outputs").mkdir(exist_ok=True)
+
+    # Create rotation processor if needed
+    if settings.rotate_inference:
+        info = load_yaml(model_name, 'info')
+        rotation_processor = RotationProcessor(model, info, settings.device)
 
     avg_time = 0.0
     n_data = 0
 
     for datapoint in (data_dir / "Inputs").iterdir():
-        data = torch.load(datapoint)
-        data = torch.unsqueeze(data, 0)
+        data = torch.load(datapoint).to(settings.device)
         time_start = time.perf_counter()
 
         if settings.rotate_inference:
-            y_out = rotate_and_infer(data.squeeze(0), [-1,0], model, load_yaml(model_name, 'info'), settings.device).to(settings.device)
+            y_out = rotation_processor.rotate_and_infer(data, [-1, 0])
         else:
-            y_out = model(data.to(settings.device)).to(settings.device)
+            y_out = model(data.unsqueeze(0)).squeeze(0)
 
         time_end = time.perf_counter()
         y_out = y_out.detach().cpu()
-        y_out = torch.squeeze(y_out, 0)
         torch.save(y_out, data_dir / "Outputs" / datapoint.name)
-        time_run = time_end-time_start
+        
+        time_run = time_end - time_start
         print(f"Inference of {datapoint.name} took {time_run} seconds")
         avg_time += time_run
         n_data += 1
+    
     avg_time /= n_data
     print(f"Average inference time {avg_time}")
     print(f"Inference finished, outputs saved in {data_dir / 'Outputs'}")

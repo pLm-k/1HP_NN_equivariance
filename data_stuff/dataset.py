@@ -1,379 +1,149 @@
 import os
 import pathlib
+from typing import List, Tuple
 
 import torch
 import yaml
-from torch import default_generator, randperm, Generator
-from torch.utils.data import Dataset, Subset
-from torch._utils import _accumulate
-from typing import List,Optional,Sequence
-import numpy as np
-import random
+from torch.utils.data import Dataset
 
 from data_stuff.transforms import NormalizeTransform
-from processing.rotation import mask_tensor, rotate, get_rotation_angle, get_pressure_grad, safe_center_crop, get_safe_size
 
 
-class SimulationDataset(Dataset):
-    def __init__(self, path):
-        Dataset.__init__(self)
+class BaseDataset(Dataset):
+    """Base class for all simulation datasets with common functionality."""
+    
+    def __init__(self, path: str):
+        super().__init__()
         self.path = pathlib.Path(path)
-        self.input_names = []
-        self.label_names = []
-        for filename in os.listdir(self.path / "Inputs"):
-            self.input_names.append(filename)
-        for filename in os.listdir(self.path / "Labels"):
-            self.label_names.append(filename)
-        self.input_names.sort()
-        self.label_names.sort()
-        self.info = self.__load_info()
+        self.info = self._load_info()
         self.norm = NormalizeTransform(self.info)
-
-        if len(self.input_names) != len(self.label_names):
-            raise ValueError(
-                "Number of Inputs and labels does not match!")
-
+    
+    def _load_info(self) -> dict:
+        """Load dataset info from YAML file."""
+        with open(self.path / "info.yaml", "r") as f:
+            return yaml.safe_load(f)
+    
     @property
-    def input_channels(self):
+    def input_channels(self) -> int:
         return len(self.info["Inputs"])
 
     @property
-    def output_channels(self):
+    def output_channels(self) -> int:
         return len(self.info["Labels"])
 
-    def __load_info(self):
-        with open(self.path.joinpath("info.yaml"), "r") as f:
-            info = yaml.safe_load(f)
-        return info
 
-    def __len__(self):
+class SimulationDataset(BaseDataset):
+    """Standard simulation dataset for loading input/label pairs."""
+    
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.input_names = sorted(os.listdir(self.path / "Inputs"))
+        self.label_names = sorted(os.listdir(self.path / "Labels"))
+        
+        if len(self.input_names) != len(self.label_names):
+            raise ValueError("Number of inputs and labels does not match!")
+
+    def __len__(self) -> int:
         return len(self.input_names)
 
-    def __getitem__(self, index):
-        input = torch.load(self.path.joinpath(
-            "Inputs", self.input_names[index]))
-        label = torch.load(self.path.joinpath(
-            "Labels", self.label_names[index]))
-        return input, label
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        input_tensor = torch.load(self.path / "Inputs" / self.input_names[index])
+        label_tensor = torch.load(self.path / "Labels" / self.label_names[index])
+        return input_tensor, label_tensor
     
-    def get_run_id(self, index):
+    def get_run_id(self, index: int) -> str:
         return self.input_names[index]
 
-# class for build an augmented dataset 
-class TrainDataset(Dataset):
-    def __init__(self, path):
-        Dataset.__init__(self)
-        self.path = path
-        self.info = self.__load_info()
-        self.norm = NormalizeTransform(self.info)
 
-        self.inputs = []
-        self.labels = []
-        self.run_ids = []
+class TrainDataset(BaseDataset):
+    """Dataset for training with support for dynamic data addition."""
+    
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.inputs: List[torch.Tensor] = []
+        self.labels: List[torch.Tensor] = []
+        self.run_ids: List[str] = []
 
-    @property
-    def input_channels(self):
-        return len(self.info["Inputs"])
-
-    @property
-    def output_channels(self):
-        return len(self.info["Labels"])
-
-    def __load_info(self):
-        with open(self.path.joinpath("info.yaml"), "r") as f:
-            info = yaml.safe_load(f)
-        return info
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.inputs)
 
-    def __getitem__(self, index):
-        input = self.inputs[index]
-        label = self.labels[index]
-        return input, label
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.inputs[index], self.labels[index]
     
-    def add_item(self, input, label, run_id):
-        self.inputs.append(input)
-        self.labels.append(label)
+    def add_item(self, input_tensor: torch.Tensor, label_tensor: torch.Tensor, run_id: str):
+        """Add a single item to the dataset."""
+        self.inputs.append(input_tensor)
+        self.labels.append(label_tensor)
         self.run_ids.append(run_id)
 
-    def get_run_id(self, index):
+    def get_run_id(self, index: int) -> str:
         return self.run_ids[index]
+class DatasetExtend1(BaseDataset):
+    """Dataset for extend plumes problem - first stage."""
     
-    @staticmethod
-    def augment_data(dataset, augmentation_n : int = 0, mask : bool = False, angle : int = 0, crop : bool = False) -> Subset:
-        """
-        Augment data by adding rotated data points to the original dataset.
-
-        Args:
-            augmentation_n (int): Number of augmented data points to add. 
-                                Setting to -1 does rotations of angles 90, 180, and 270 degrees.
-            mask (bool): Apply circular mask to data fields if set to True.
-            angle (int): Rotate all data points in original dataset by angle before augmenting (used for experimentation).
-        
-        Returns:
-            torch.utils.data.Subset: Subset representing augmented dataset.
-        """
-
-        #allow for simulating rotated input dataset
-        np.random.seed(42)
-        if angle == -1:
-            angles = [int(angle) for angle in np.random.randint(0,360,len(dataset))]
-            #print(angles)
-        else:
-            angles = [angle]*len(dataset)
-        
-        inputs = [rotate(dataset[i][0],angles[i]) for i in range(len(dataset))]
-        labels = [rotate(dataset[i][1],angles[i]) for i in range(len(dataset))]
-
-        run_ids = [dataset.dataset.get_run_id(i) for i in range(len(dataset))]
-        
-        augmented_dataset = TrainDataset(dataset.dataset.path)
-
-        # add original data to output dataset
-        for i in range(len(dataset)):
-            if mask:
-                augmented_dataset.add_item(mask_tensor(inputs[i]), mask_tensor(labels[i]), run_ids[i])
-            else:
-                augmented_dataset.add_item(inputs[i], labels[i], run_ids[i])
-            
-        
-        # add augmented data points to output dataset 
-        for i in range(len(dataset)):
-            # add augmentation_n variations by uniformly sampling rotation angle from (0,360)
-            for _ in range(augmentation_n):
-                 rot_angle = np.random.rand()*360
-                 if mask:
-                    augmented_dataset.add_item(mask_tensor(rotate(inputs[i], rot_angle)), mask_tensor(rotate(labels[i], rot_angle)), run_ids[i] + f'_rot_{rot_angle}')
-                 else:
-                    augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
-            # extra augmentation mode used for 90*k degrees rotation
-            if augmentation_n < 0:
-                for rot_angle in [90,180,270]:
-                    if mask:
-                        augmented_dataset.add_item(mask_tensor(rotate(inputs[i], rot_angle)), mask_tensor(rotate(labels[i], rot_angle)), run_ids[i] + f'_rot_{rot_angle}')
-                    else:
-                        augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
-        if crop:
-            augmented_dataset = TrainDataset.crop_data(augmented_dataset)
-        return Subset(augmented_dataset, list(range(len(augmented_dataset))))
-    
-    # restrict dataset to data_n points, dont limit if data_n <= 0
-    @staticmethod
-    def restrict_data(dataset, data_n : int = -1, seed : int = 1) -> Subset:
-        if data_n <= 0 or data_n >= len(dataset):
-            return dataset
-        
-        random.seed(seed)
-        
-        restricted_dataset = TrainDataset(dataset.dataset.path) 
-        data_points = random.sample([(dataset[i][0], dataset[i][1], dataset.dataset.get_run_id(i)) for i in range(len(dataset))], data_n)
-
-        for data_point in data_points:
-            restricted_dataset.add_item(data_point[0], data_point[1], data_point[2])
-        print(f"LEN OF SUBSET IS {len(restricted_dataset)}")
-        return Subset(restricted_dataset, list(range(len(restricted_dataset))))
-
-    @staticmethod
-    def remove_angles(dataset_in, remove_ranges : list = []) -> Subset:
-        """
-        Remove data points from the dataset that are within specified angle ranges.
-
-        Args:
-            dataset: Dataset containing data points to filter.
-            remove_ranges (list): List of angle ranges (start, end) to remove from the dataset.
-
-        Returns:
-            TrainDataset: Dataset with specified angle ranges removed.
-        """
-        if len(remove_ranges) == 0:
-            return dataset_in
-        
-        dataset = dataset_in.dataset
-        #get data from original dataset
-        inputs = [dataset[i][0] for i in range(len(dataset))]
-        labels = [dataset[i][1] for i in range(len(dataset))]
-        run_ids = [dataset.get_run_id(i) for i in range(len(dataset))]
-
-        filtered_dataset = TrainDataset(dataset.path)
-        
-        # filter out data points that are within the specified angle ranges
-        for i in range(len(dataset)):
-            angle = get_rotation_angle(get_pressure_grad(inputs[i],dataset.info), [-1,0])
-            if not any(start <= angle < end for start, end in remove_ranges):
-                filtered_dataset.add_item(inputs[i], labels[i], run_ids[i])
-
-        return Subset(filtered_dataset, list(range(len(filtered_dataset))))
-
-    @staticmethod
-    def crop_data(dataset_in, depth : int = 3) -> Subset:
-        """
-        Crop all items in a dataset to the maximal square size that avoids
-        blank corners after arbitrary rotations, optionally adjusted for UNet depth.
-
-        This method:
-        1. Extracts inputs, labels, and run IDs from the original dataset.
-        2. Computes the safe crop size based on the first label tensor and UNet depth.
-        3. Crops each input and label tensor to the safe center region.
-        4. Stores the cropped items in a new TrainDataset.
-        5. Returns a Subset covering all cropped items.
-
-        Args:
-            dataset_in: Subset or Dataset object containing (input, label) pairs.
-            depth: int, number of downsampling layers in the UNet. The crop size
-                will be divisible by 2**depth to ensure compatibility.
-
-        Returns:
-            Subset: A PyTorch Subset object wrapping the new cropped dataset.
-        """
-        
-        dataset = dataset_in.dataset
-        # Get data from original dataset
-        inputs = [dataset[i][0] for i in range(len(dataset))]
-        labels = [dataset[i][1] for i in range(len(dataset))]
-        run_ids = [dataset.get_run_id(i) for i in range(len(dataset))]
-
-        cropped_dataset = TrainDataset(dataset.path)
-        safe_size = get_safe_size(labels[0], depth)
-
-        # Crop and add data points
-        for i in range(len(dataset)):
-            cropped_dataset.add_item(
-                safe_center_crop(inputs[i], safe_size),
-                safe_center_crop(labels[i], safe_size),
-                run_ids[i]
-            )
-
-        # Return a Subset containing all cropped items
-        return Subset(cropped_dataset, list(range(len(cropped_dataset))))
-
-    @staticmethod
-    def rotate_data(dataset, grad_vec : list = [-1,0]):
-        """
-        Rotate data points in the dataset to align them with a specified direction.
-
-        Args:
-            dataset: Dataset containing data points to align.
-            grad_vec (list): Direction vector to align data points to.
-        Returns:
-            TrainDataset: Dataset aligned to grad_vec direction.
-        """
-        #get data from original dataset
-        inputs = [dataset[i][0] for i in range(len(dataset))]
-        labels = [dataset[i][1] for i in range(len(dataset))]
-        run_ids = [dataset.get_run_id(i) for i in range(len(dataset))]
-
-        #normalize grad_vec
-        grad_vec /= np.sqrt(grad_vec[0]**2 + grad_vec[1]**2) 
-        
-        rotated_dataset = TrainDataset(dataset.path)
-        error = [0.,0.]
-        # align dataset to grad_vec direction
-        for i in range(len(dataset)):
-            # align data point to grad_vec direction
-            angle = get_rotation_angle(get_pressure_grad(inputs[i],dataset.info), grad_vec)
-            rotated_input = rotate(inputs[i], angle)
-            rotated_dataset.add_item(rotated_input, rotate(labels[i], angle), run_ids[i])
-            
-            # calculate error between the gradient of the rotated data point and the gradient that it has been aligned to
-            rotated_grad = get_pressure_grad(rotated_input,dataset.info)
-            # normalize gradient
-            rotated_grad /= np.sqrt(rotated_grad[0]**2 + rotated_grad[1]**2) 
-            error[0] += abs(grad_vec[0] - rotated_grad[0])
-            error[1] += abs(grad_vec[1] - rotated_grad[1])
-        error[0] /= len(rotated_dataset)
-        error[1] /= len(rotated_dataset)
-        print(f'Mean Average Error direction: {error}')
-
-        return rotated_dataset
-
-class DatasetExtend1(Dataset):
-    def __init__(self, path:str, box_size:int=64):
-        Dataset.__init__(self)
-        self.path = pathlib.Path(path)
-        self.info = self.__load_info()
-        self.norm = NormalizeTransform(self.info)
-        self.input_names = []
-        self.label_names = []
-        for filename in os.listdir(self.path / "Inputs"):
-            self.input_names.append(filename)
-        for filename in os.listdir(self.path / "Labels"):
-            self.label_names.append(filename)
-        self.input_names.sort()
-        self.label_names.sort()
+    def __init__(self, path: str, box_size: int = 64):
+        super().__init__(path)
+        self.input_names = sorted(os.listdir(self.path / "Inputs"))
+        self.label_names = sorted(os.listdir(self.path / "Labels"))
         self.spatial_size = torch.load(self.path / "Inputs" / self.input_names[0]).shape[1:]
         self.box_size = box_size
 
-    @property
-    def input_channels(self):
-        return len(self.info["Inputs"])
-
-    @property
-    def output_channels(self):
-        return len(self.info["Labels"])
-
-    def __load_info(self):
-        with open(self.path / "info.yaml", "r") as f:
-            info = yaml.safe_load(f)
-        return info
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.input_names)
     
-    def __getitem__(self, idx):
-        input = torch.load(self.path / "Inputs" / self.input_names[idx])[:, :self.box_size, :]
-        label = torch.load(self.path / "Labels" / self.label_names[idx])[:, :self.box_size, :]
-        return input, label
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        input_tensor = torch.load(self.path / "Inputs" / self.input_names[idx])[:, :self.box_size, :]
+        label_tensor = torch.load(self.path / "Labels" / self.label_names[idx])[:, :self.box_size, :]
+        return input_tensor, label_tensor
 
-class DatasetExtend2(Dataset):
-    def __init__(self, path:str, skip_per_dir:int=4, box_size:int=64):
-        Dataset.__init__(self)
-        self.path = pathlib.Path(path)
-        self.info = self.__load_info()
-        self.norm = NormalizeTransform(self.info)
-        self.input_names = []
-        self.label_names = []
-        for filename in os.listdir(self.path / "Inputs"):
-            self.input_names.append(filename)
-        for filename in os.listdir(self.path / "Labels"):
-            self.label_names.append(filename)
-        self.input_names.sort()
-        self.label_names.sort()
-        self.spatial_size = torch.load(self.path / "Inputs" / self.input_names[0]).shape[1:]
-        self.box_size:int = box_size
-        self.skip_per_dir:int = skip_per_dir
-        self.dp_per_run:int = ((self.spatial_size[0]) // self.box_size - 2) * (self.box_size // self.skip_per_dir) #-2 to exclude last box
-        print(f"dp_per_run: {self.dp_per_run}, spatial_size: {self.spatial_size}, box_size: {self.box_size}, skip_per_dir: {self.skip_per_dir}")
 
-    @property
-    def input_channels(self):
-        return len(self.info["Inputs"])+1
-
-    @property
-    def output_channels(self):
-        return len(self.info["Labels"])
-
-    def __load_info(self):
-        with open(self.path / "info.yaml", "r") as f:
-            info = yaml.safe_load(f)
-        return info
+class DatasetExtend2(BaseDataset):
+    """Dataset for extend plumes problem - second stage."""
     
-    def __len__(self):
+    def __init__(self, path: str, skip_per_dir: int = 4, box_size: int = 64):
+        super().__init__(path)
+        self.input_names = sorted(os.listdir(self.path / "Inputs"))
+        self.label_names = sorted(os.listdir(self.path / "Labels"))
+        self.spatial_size = torch.load(self.path / "Inputs" / self.input_names[0]).shape[1:]
+        self.box_size = box_size
+        self.skip_per_dir = skip_per_dir
+        self.dp_per_run = ((self.spatial_size[0]) // self.box_size - 2) * (self.box_size // self.skip_per_dir)
+        print(f"dp_per_run: {self.dp_per_run}, spatial_size: {self.spatial_size}, "
+              f"box_size: {self.box_size}, skip_per_dir: {self.skip_per_dir}")
+
+    @property
+    def input_channels(self) -> int:
+        return len(self.info["Inputs"]) + 1  # +1 for temperature
+
+    def __len__(self) -> int:
         return len(self.input_names) * self.dp_per_run
 
-    def __getitem__(self, idx):
-        run_id, box_id = self.idx_to_pos(idx)
-        input = torch.load(self.path / "Inputs" / self.input_names[run_id])[:, box_id*self.skip_per_dir + self.box_size : box_id*self.skip_per_dir + 2*self.box_size, :]
-        input_T = torch.load(self.path / "Labels" / self.input_names[run_id])[:, box_id*self.skip_per_dir : box_id*self.skip_per_dir  + self.box_size, :]
-        assert input.shape[1:] == input_T.shape[1:], f"Shapes of input and input_T do not match  {input.shape}, {input_T.shape}"
-        input = torch.cat((input, input_T), dim=0)
-        label = torch.load(self.path / "Labels" / self.label_names[run_id])[:, box_id*self.skip_per_dir + self.box_size : box_id*self.skip_per_dir + 2*self.box_size, :]
-        return input, label
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        run_id, box_id = self._idx_to_pos(idx)
+        
+        start_pos = box_id * self.skip_per_dir
+        input_slice = slice(start_pos + self.box_size, start_pos + 2 * self.box_size)
+        temp_slice = slice(start_pos, start_pos + self.box_size)
+        
+        input_tensor = torch.load(self.path / "Inputs" / self.input_names[run_id])[:, input_slice, :]
+        input_T = torch.load(self.path / "Labels" / self.input_names[run_id])[:, temp_slice, :]
+        
+        assert input_tensor.shape[1:] == input_T.shape[1:], \
+            f"Shapes do not match: {input_tensor.shape} vs {input_T.shape}"
+        
+        input_combined = torch.cat((input_tensor, input_T), dim=0)
+        label_tensor = torch.load(self.path / "Labels" / self.label_names[run_id])[:, input_slice, :]
+        
+        return input_combined, label_tensor
 
-    def idx_to_pos(self, idx):
-        return idx // self.dp_per_run, idx % self.dp_per_run + 1 #depends on which box is taken (front or last)
-    
-def get_splits(n, splits):
+    def _idx_to_pos(self, idx: int) -> Tuple[int, int]:
+        """Convert linear index to (run_id, box_id)."""
+        return idx // self.dp_per_run, idx % self.dp_per_run + 1
+
+
+# Utility functions
+def get_splits(n: int, splits: List[float]) -> List[int]:
+    """Convert fractional splits to integer splits that sum to n."""
     splits = [int(n * s) for s in splits[:-1]]
     splits.append(n - sum(splits))
     return splits

@@ -4,22 +4,19 @@ import multiprocessing
 import numpy as np
 import time
 import torch
-import yaml
 import wandb
 from torch.utils.data import DataLoader, random_split
 from torch.nn import MSELoss
 
-from data_stuff.dataset import SimulationDataset, TrainDataset, DatasetExtend1, DatasetExtend2, get_splits
-from data_stuff.utils import SettingsTraining, load_yaml
-from networks.unet import UNet, UNetBC
+from data_stuff.dataset import SimulationDataset, DatasetExtend1, DatasetExtend2, get_splits
+from data_stuff.augmentation import DataAugmentation
+from data_stuff.utils import SettingsTraining
+from networks.unet import UNet
 from networks.unetHalfPad import UNetHalfPad
 from networks.equivariantCNN import G_UNet
 from networks.continous_equivariantCNN import Cont_G_UNet
 from processing.solver import Solver
-from processing.rotation import rotate_and_infer
 from preprocessing.prepare import prepare_data_and_paths
-from postprocessing.visualization import plot_avg_error_cellwise, visualizations, infer_all_and_summed_pic
-from postprocessing.measurements import measure_loss, save_all_measurements
 
 sweep_config = {
     'method': 'grid',
@@ -54,15 +51,15 @@ def init_data(settings: SettingsTraining, seed=1):
 
     if settings.rotate_inference and settings.case == 'train':
         print('Rotating data for training')
-        dataset = TrainDataset.rotate_data(dataset)
+        dataset = DataAugmentation.rotate_data(dataset)
         
     datasets = random_split(dataset, get_splits(len(dataset), split_ratios), generator=generator)
     dataloaders = {}
     try:
-        dataloaders["train"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
-        dataloaders["val"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["train"] = DataLoader(DataAugmentation.augment_data(DataAugmentation.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["val"] = DataLoader(DataAugmentation.augment_data(DataAugmentation.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
     except: pass
-    dataloaders["test"] = DataLoader(TrainDataset.augment_data(datasets[2], 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=False, num_workers=0)
+    dataloaders["test"] = DataLoader(DataAugmentation.augment_data(datasets[2], 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=False, num_workers=0)
 
     print('!------------------------------------------------------------------------------------------------------------------!')
     print(f'Dataset restricted to size: train:{len(dataloaders["train"])}, validation:{len(dataloaders["val"])}, test:{len(dataloaders["test"])}')
