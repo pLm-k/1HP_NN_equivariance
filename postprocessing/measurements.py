@@ -51,7 +51,7 @@ def measure_len_width_1K_isoline(data: Dict[str, "DataToVisualize"]):
     plt.close("all")
     return lengths, widths
 
-def measure_loss(model: UNet, dataloaders: Dict[str, DataLoader], settings: SettingsTraining, vT_case: str = "temperature", rotate_inference : bool = False, mask : bool = False):
+def measure_loss(model: UNet, dataloaders: Dict[str, DataLoader], settings: SettingsTraining, vT_case: str = "temperature", rotate_inference : bool = False, mask : bool = False, crop : bool = False):
     '''
     function to measure the losses for the paper24
     ATTENTION! not robust, expects vT-case to be "temperature" or "velocities" and
@@ -81,13 +81,13 @@ def measure_loss(model: UNet, dataloaders: Dict[str, DataLoader], settings: Sett
 
         for x, y in dataloader:
             x = x.to(device).detach() # B,C,H,W
-            y = y.to(device).detach()
+            y = (rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y).to(device).detach()
             if rotate_inference:
-                y_pred = rt.rotate_and_infer_batch(x, [-1,0], model, info, device).to(device).detach()
+                y_pred = rt.rotate_and_infer_batch(x, [-1,0], model, info, device, mask, crop).to(device).detach()
             else:
-                y_pred = model(x).to(device).detach()
+                y_pred = model((rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())) if crop else x.cpu()).to(device).detach()).to(device).detach()
 
-            if mask:
+            if mask and not crop:
                 y = rt.mask_batch(y.cpu()).to(device)
                 y_pred = rt.mask_batch(y_pred.cpu()).to(device)
                 

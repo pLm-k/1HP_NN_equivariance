@@ -115,6 +115,13 @@ class G_UNet(nn.Module):
     def _block(self, in_type : enn.FieldType, out_type : enn.FieldType, kernel_size :int = 5) -> enn.SequentialModule:
         return enn.SequentialModule(
             # *self.get_layer(in_type, out_type, bn=True, kernel_size=kernel_size)
+            
+            # *self.get_layer(in_type, out_type, kernel_size=kernel_size),
+            # *self.get_layer(out_type, out_type, kernel_size=kernel_size),
+            # *self.get_layer(out_type, out_type, bn=True, kernel_size=kernel_size),
+            # *self.get_layer(out_type, out_type, kernel_size=kernel_size),
+            # *self.get_layer(out_type, out_type, kernel_size=kernel_size)
+
             *self.get_layer(in_type, out_type, kernel_size=kernel_size),
             *self.get_layer(out_type, out_type, bn=True, kernel_size=kernel_size),
             *self.get_layer(out_type, out_type, kernel_size=kernel_size)

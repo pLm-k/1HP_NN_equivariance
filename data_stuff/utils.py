@@ -42,6 +42,7 @@ class SettingsTraining:
     mask: bool = False
     rotate_inputs: int = 0
     data_n: int = -1
+    crop: bool = False
     equivariance_case: str = "none"
 
     def __post_init__(self):

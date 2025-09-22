@@ -11,7 +11,7 @@ import numpy as np
 import random
 
 from data_stuff.transforms import NormalizeTransform
-from processing.rotation import mask_tensor, rotate, get_rotation_angle, get_pressure_grad
+from processing.rotation import mask_tensor, rotate, get_rotation_angle, get_pressure_grad, safe_center_crop, get_safe_size
 
 
 class SimulationDataset(Dataset):
@@ -101,7 +101,7 @@ class TrainDataset(Dataset):
         return self.run_ids[index]
     
     @staticmethod
-    def augment_data(dataset, augmentation_n : int = 0, mask : bool = False, angle : int = 0) -> Subset:
+    def augment_data(dataset, augmentation_n : int = 0, mask : bool = False, angle : int = 0, crop : bool = False) -> Subset:
         """
         Augment data by adding rotated data points to the original dataset.
 
@@ -115,13 +115,16 @@ class TrainDataset(Dataset):
             torch.utils.data.Subset: Subset representing augmented dataset.
         """
 
-        #get data from original dataset and apply circular mask/rotation
-        if mask:
-            inputs = [rotate(mask_tensor(dataset[i][0]),angle) for i in range(len(dataset))]
-            labels = [rotate(mask_tensor(dataset[i][1]),angle) for i in range(len(dataset))]
+        #allow for simulating rotated input dataset
+        np.random.seed(42)
+        if angle == -1:
+            angles = [int(angle) for angle in np.random.randint(0,360,len(dataset))]
+            #print(angles)
         else:
-            inputs = [rotate(dataset[i][0],angle) for i in range(len(dataset))]
-            labels = [rotate(dataset[i][1],angle) for i in range(len(dataset))]
+            angles = [angle]*len(dataset)
+        
+        inputs = [rotate(dataset[i][0],angles[i]) for i in range(len(dataset))]
+        labels = [rotate(dataset[i][1],angles[i]) for i in range(len(dataset))]
 
         run_ids = [dataset.dataset.get_run_id(i) for i in range(len(dataset))]
         
@@ -129,19 +132,30 @@ class TrainDataset(Dataset):
 
         # add original data to output dataset
         for i in range(len(dataset)):
-            augmented_dataset.add_item(inputs[i], labels[i], run_ids[i])
+            if mask:
+                augmented_dataset.add_item(mask_tensor(inputs[i]), mask_tensor(labels[i]), run_ids[i])
+            else:
+                augmented_dataset.add_item(inputs[i], labels[i], run_ids[i])
+            
         
         # add augmented data points to output dataset 
         for i in range(len(dataset)):
             # add augmentation_n variations by uniformly sampling rotation angle from (0,360)
             for _ in range(augmentation_n):
                  rot_angle = np.random.rand()*360
-                 augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
+                 if mask:
+                    augmented_dataset.add_item(mask_tensor(rotate(inputs[i], rot_angle)), mask_tensor(rotate(labels[i], rot_angle)), run_ids[i] + f'_rot_{rot_angle}')
+                 else:
+                    augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
             # extra augmentation mode used for 90*k degrees rotation
             if augmentation_n < 0:
                 for rot_angle in [90,180,270]:
-                    augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
-
+                    if mask:
+                        augmented_dataset.add_item(mask_tensor(rotate(inputs[i], rot_angle)), mask_tensor(rotate(labels[i], rot_angle)), run_ids[i] + f'_rot_{rot_angle}')
+                    else:
+                        augmented_dataset.add_item(rotate(inputs[i], rot_angle), rotate(labels[i], rot_angle), run_ids[i] + f'_rot_{rot_angle}')
+        if crop:
+            augmented_dataset = TrainDataset.crop_data(augmented_dataset)
         return Subset(augmented_dataset, list(range(len(augmented_dataset))))
     
     # restrict dataset to data_n points, dont limit if data_n <= 0
@@ -161,6 +175,79 @@ class TrainDataset(Dataset):
         return Subset(restricted_dataset, list(range(len(restricted_dataset))))
 
     @staticmethod
+    def remove_angles(dataset_in, remove_ranges : list = []) -> Subset:
+        """
+        Remove data points from the dataset that are within specified angle ranges.
+
+        Args:
+            dataset: Dataset containing data points to filter.
+            remove_ranges (list): List of angle ranges (start, end) to remove from the dataset.
+
+        Returns:
+            TrainDataset: Dataset with specified angle ranges removed.
+        """
+        if len(remove_ranges) == 0:
+            return dataset_in
+        
+        dataset = dataset_in.dataset
+        #get data from original dataset
+        inputs = [dataset[i][0] for i in range(len(dataset))]
+        labels = [dataset[i][1] for i in range(len(dataset))]
+        run_ids = [dataset.get_run_id(i) for i in range(len(dataset))]
+
+        filtered_dataset = TrainDataset(dataset.path)
+        
+        # filter out data points that are within the specified angle ranges
+        for i in range(len(dataset)):
+            angle = get_rotation_angle(get_pressure_grad(inputs[i],dataset.info), [-1,0])
+            if not any(start <= angle < end for start, end in remove_ranges):
+                filtered_dataset.add_item(inputs[i], labels[i], run_ids[i])
+
+        return Subset(filtered_dataset, list(range(len(filtered_dataset))))
+
+    @staticmethod
+    def crop_data(dataset_in, depth : int = 3) -> Subset:
+        """
+        Crop all items in a dataset to the maximal square size that avoids
+        blank corners after arbitrary rotations, optionally adjusted for UNet depth.
+
+        This method:
+        1. Extracts inputs, labels, and run IDs from the original dataset.
+        2. Computes the safe crop size based on the first label tensor and UNet depth.
+        3. Crops each input and label tensor to the safe center region.
+        4. Stores the cropped items in a new TrainDataset.
+        5. Returns a Subset covering all cropped items.
+
+        Args:
+            dataset_in: Subset or Dataset object containing (input, label) pairs.
+            depth: int, number of downsampling layers in the UNet. The crop size
+                will be divisible by 2**depth to ensure compatibility.
+
+        Returns:
+            Subset: A PyTorch Subset object wrapping the new cropped dataset.
+        """
+        
+        dataset = dataset_in.dataset
+        # Get data from original dataset
+        inputs = [dataset[i][0] for i in range(len(dataset))]
+        labels = [dataset[i][1] for i in range(len(dataset))]
+        run_ids = [dataset.get_run_id(i) for i in range(len(dataset))]
+
+        cropped_dataset = TrainDataset(dataset.path)
+        safe_size = get_safe_size(labels[0], depth)
+
+        # Crop and add data points
+        for i in range(len(dataset)):
+            cropped_dataset.add_item(
+                safe_center_crop(inputs[i], safe_size),
+                safe_center_crop(labels[i], safe_size),
+                run_ids[i]
+            )
+
+        # Return a Subset containing all cropped items
+        return Subset(cropped_dataset, list(range(len(cropped_dataset))))
+
+    @staticmethod
     def rotate_data(dataset, grad_vec : list = [-1,0]):
         """
         Rotate data points in the dataset to align them with a specified direction.
@@ -168,7 +255,6 @@ class TrainDataset(Dataset):
         Args:
             dataset: Dataset containing data points to align.
             grad_vec (list): Direction vector to align data points to.
-        
         Returns:
             TrainDataset: Dataset aligned to grad_vec direction.
         """

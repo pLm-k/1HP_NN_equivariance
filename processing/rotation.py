@@ -3,18 +3,23 @@ import numpy as np
 import torchvision.transforms.functional as TF
 from torchvision.transforms import InterpolationMode
 from itertools import product, repeat
-import math
 
 # function to rotate one datapoint counter-clockwise (with pressure as input)
 def rotate(data : torch.tensor, angle : int) -> torch.tensor:
     return TF.rotate(data, angle, interpolation = InterpolationMode.BILINEAR)
 
 # rotate a datapoint such that direction matches specified direction and return rerotated prediction (with pressure as input)
-def rotate_and_infer(datapoint : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str) -> torch.tensor:
+def rotate_and_infer(datapoint : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str, mask : bool = False, crop : bool = False) -> torch.tensor:
     # calculate gradient and get angle for aligning data point
     angle = get_rotation_angle(get_pressure_grad(datapoint,info), grad_vec)
     x = rotate(datapoint, angle)
 
+    if crop:
+        safe_size = get_safe_size(x.cpu())
+        x = safe_center_crop(x.cpu(), safe_size).to(device)
+    elif mask:
+        x = mask_tensor(x.cpu()).to(device)
+    
     # get inference
     y_out = model(x.unsqueeze(0))
 
@@ -23,10 +28,10 @@ def rotate_and_infer(datapoint : torch.tensor, grad_vec : list, model : torch.nn
     return y_out
 
 # rotate a batch such that direction matches specified direction and return rerotated inference (with pressure as input)
-def rotate_and_infer_batch(batch : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str) -> torch.tensor:
+def rotate_and_infer_batch(batch : torch.tensor, grad_vec : list, model : torch.nn.Module, info, device : str, mask : bool = False, crop : bool = False) -> torch.tensor:
     y_out_list = []
     for datapoint in batch:
-        y_out_list.append(rotate_and_infer(datapoint, grad_vec, model, info, device).squeeze(0))
+        y_out_list.append(rotate_and_infer(datapoint, grad_vec, model, info, device, mask, crop).squeeze(0))
     return torch.stack(y_out_list)
 
 # get angle to rotate a counter-clockwise to match b's direction
@@ -57,6 +62,27 @@ def get_pressure_grad(datapoint : torch.tensor, info) -> list:
     # calculate gradient
     return [(datapoint[p_ind][end][center].item() - datapoint[p_ind][start][center].item())/dif, 
                                 (datapoint[p_ind][center][end].item() - datapoint[p_ind][center][start].item())/dif]
+
+
+def get_safe_size(tensor, depth):
+    H, W = tensor.shape[-2:]
+    assert H == W, "Tensor must be square"
+    
+    safe_size = int(H / np.sqrt(2))
+    safe_size -= safe_size % 2 ** depth
+    return safe_size
+
+def safe_center_crop(tensors, safe_size):
+    """
+    Crop square tensor batch (C,H,W) to maximal safe size
+    that fits any rotated version without blank corners.
+    
+    Returns: cropped tensor batch
+    """
+    start = (tensors.shape[-2] - safe_size) // 2
+    end = start + safe_size
+    
+    return tensors[..., start:end, start:end]
 
 # build mask to cut out circular field from input, based on:
 # https://quva-lab.github.io/escnn/api/escnn.nn.html?highlight=maskmodule#escnn.nn.MaskModule

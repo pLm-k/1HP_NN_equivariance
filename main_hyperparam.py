@@ -31,7 +31,7 @@ parameters_dict = {
         'values': [32] #2,3,4
         },
     'rotation_n': {
-          'values': [0] #2,4,8
+          'values': [4] #2,4,8
         }}
 sweep_config['parameters'] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity='1hpnn', project="hyperparam_features")
@@ -59,8 +59,8 @@ def init_data(settings: SettingsTraining, seed=1):
     datasets = random_split(dataset, get_splits(len(dataset), split_ratios), generator=generator)
     dataloaders = {}
     try:
-        dataloaders["train"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
-        dataloaders["val"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["train"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[0], int(settings.data_n*split_ratios[0])), settings.augmentation_n, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
+        dataloaders["val"] = DataLoader(TrainDataset.augment_data(TrainDataset.restrict_data(datasets[1], int(settings.data_n*split_ratios[1])), 0, settings.mask, settings.rotate_inputs, settings.crop), batch_size=50, shuffle=True, num_workers=0)
     except: pass
     dataloaders["test"] = DataLoader(TrainDataset.augment_data(datasets[2], 0, settings.mask, settings.rotate_inputs), batch_size=50, shuffle=False, num_workers=0)
 
@@ -163,6 +163,7 @@ if __name__ == "__main__":
             "- 'ecnn': Uses equivariant UNet.\n"
         )
     )
+    parser.add_argument("--crop", type=bool, default=False)
     parser.add_argument("--mask", type=bool, default=False)
     parser.add_argument("--rotate_inputs", type=int, default=0)
     parser.add_argument("--data_n", type=int, default=-1)

@@ -10,9 +10,11 @@
 #module load cuda/12.2.2
 source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
 
-python main_hyperparam.py --dataset_raw dataset_square_3000dp_p_rotate_res5 \
+python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_right \
     --inputs pksi \
     --equivariance_case oriented_boxes \
     --device 'cuda:0'\
-    --epochs 3000 \
-    --destination '/import/sgs.scratch/miliczpl/models/cnn_3000_oriented_boxes' \
+    --epochs 6000 \
+    --data_n 3000 \
+    --rotate_inputs -1 \
+    --destination '/import/sgs.scratch/miliczpl/models/right/oriented_cnn_1000' \

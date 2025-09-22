@@ -54,7 +54,7 @@ class DataToVisualize:
         elif self.name == "SDF":
             self.name = "SDF-transformed position in [-]"
     
-def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_datapoints_to_visu: int = inf, plot_path: str = "default", pic_format: str = "png", rotate_inference: bool = False, mask: bool = False):
+def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_datapoints_to_visu: int = inf, plot_path: str = "default", pic_format: str = "png", rotate_inference: bool = False, mask: bool = False, crop: bool = False):
     print("Visualizing...", end="\r")
 
     if amount_datapoints_to_visu > len(dataloader.dataset):
@@ -74,21 +74,27 @@ def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_data
 
             x = torch.unsqueeze(inputs[datapoint_id].to(device), 0)
             y = labels[datapoint_id]
+            y = rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y
 
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
-                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device).to(device)
+                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device, mask, crop).to(device)
+                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
             else:
+                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
                 y_out = model(x).to(device)
 
             # apply circular mask
-            if mask:
+            if mask and not crop:
                 y = rt.mask_tensor(y.cpu()).to(device)
                 y_out = rt.mask_tensor(y_out.cpu()[0]).unsqueeze(0).to(device)
 
             x, y, y_out = reverse_norm_one_dp(x, y, y_out, norm)
             dict_to_plot = prepare_data_to_plot(x, y, y_out, info)
-
+            
+            np.save(f'{plot_path}_label_{current_id}.npy', dict_to_plot['t_true'].data.T.numpy())
+            np.save(f'{plot_path}_prediction_{current_id}.npy', dict_to_plot['t_out'].data.T.numpy())
+            
             plot_datafields(dict_to_plot, name_pic, settings_pic)
             # plot_isolines(dict_to_plot, name_pic, settings_pic)
             # measure_len_width_1K_isoline(dict_to_plot)
@@ -174,7 +180,7 @@ def plot_isolines(data: Dict[str, DataToVisualize], name_pic: str, settings_pic:
     plt.tight_layout()
     plt.savefig(f"{name_pic}_isolines.{settings_pic['format']}", **settings_pic)
 
-def infer_all_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, rotate_inference: bool = False, mask: bool = False, angle: int = 0):
+def infer_all_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, rotate_inference: bool = False, mask: bool = False, angle: int = 0, crop: bool = False):
     '''
     sum inference time (including reverse-norming) and pixelwise error over all datapoints
     the angle parameter is only used for testing of equivariance
@@ -199,17 +205,19 @@ def infer_all_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, r
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
                 start_time = time.perf_counter()
-                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device).to(device)
+                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device, crop).to(device)
+                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
             else:
+                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
                 start_time = time.perf_counter()
                 y_out = model(x).to(device)
             
             avg_inference_time += (time.perf_counter() - start_time)
             
             y = rt.rotate(labels[datapoint_id],angle)
-
+            y = rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y
             # apply circular mask
-            if mask:
+            if mask and not crop:
                 y = rt.mask_tensor(y.cpu()).to(device)
                 y_out = rt.mask_tensor(y_out.cpu()[0]).unsqueeze(0).to(device)
 
