@@ -43,6 +43,12 @@ parameters_dict = {
     "rotation_n": {
         "values": [4]  # 2,4,8
     },
+    "batch_size": {
+        "values": [50]
+    },
+    "lr_factor": {
+        "values": [1.0]
+    },
 }
 sweep_config["parameters"] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity="1hpnn", project="hyperparam_features")
@@ -81,13 +87,13 @@ def init_data(settings: SettingsTraining, seed=1):
             TrainDataset.augment_data(
                 datasets[0], settings.augmentation_n, settings.crop
             ),
-            batch_size=50,
+            batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
         dataloaders["val"] = DataLoader(
             TrainDataset.augment_data(datasets[1], 0, settings.crop),
-            batch_size=50,
+            batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
@@ -95,7 +101,7 @@ def init_data(settings: SettingsTraining, seed=1):
         pass
     dataloaders["test"] = DataLoader(
         TrainDataset.augment_data(datasets[2], 0, settings.crop),
-        batch_size=50,
+        batch_size=settings.batch_size,
         shuffle=False,
         num_workers=0,
     )
@@ -123,6 +129,8 @@ def run_eval(config=None):
     with wandb.init(config=config, tags=[model_name]):
         config = wandb.config
         settings = settings_global
+        settings.batch_size = config.batch_size
+        settings.lr_factor = config.lr_factor
         multiprocessing.set_start_method("spawn", force=True)
 
         times = {}

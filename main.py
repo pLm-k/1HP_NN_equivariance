@@ -65,13 +65,13 @@ def init_data(settings: SettingsTraining, seed=1):
             TrainDataset.augment_data(
                 datasets[0], settings.augmentation_n, settings.crop
             ),
-            batch_size=50,
+            batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
         dataloaders["val"] = DataLoader(
             TrainDataset.augment_data(datasets[1], 0, settings.crop),
-            batch_size=50,
+            batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
@@ -79,7 +79,7 @@ def init_data(settings: SettingsTraining, seed=1):
         pass
     dataloaders["test"] = DataLoader(
         TrainDataset.augment_data(datasets[2], 0, settings.crop),
-        batch_size=50,
+        batch_size=settings.batch_size,
         shuffle=False,
         num_workers=0,
     )
@@ -328,6 +328,8 @@ if __name__ == "__main__":
     parser.add_argument("--len_box", type=int, default=256)
     parser.add_argument("--skip_per_dir", type=int, default=256)
     parser.add_argument("--augmentation_n", type=int, default=0)
+    parser.add_argument("--batch_size", type=int, default=50)
+    parser.add_argument("--lr_factor", type=float, default=1.0)
     parser.add_argument(
         "--equivariance_case",
         type=str,
