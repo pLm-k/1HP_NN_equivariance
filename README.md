@@ -50,12 +50,6 @@
       - `oriented_boxes` : Rotate data points to align with a specific direction for training\inference. (`augmentation_n` will be set to 0)
       -  `ecnn` : Use equivariant CNN. (`augmentation_n` will be set to 0)
      (Default: `none`)
-  - `--data_n`: Restricts the dataset to `data_n` data points. The test set remains unaffected. <br>
-    Setting `data_n <= 0` or larger than the number of data points results in no restriction. (Default: `-1`)
-
-- **Arguments for Experimenting (Apply before training or inference):**
-  - `--mask`: Applies a mask to all data. (Default: `False`)
-  - `--rotate_inputs`: Rotates all data by the specified angle. (Default: `0`)
 
 - **Logging with Weights & Biases**
   - login to wandb account with `wandb login`.

@@ -16,6 +16,7 @@ def save_yaml(settings: Dict, path: str, name_file: str = "settings"):
     with open(path / f"{name_file}.yaml", "w") as file:
         yaml.dump(settings, file)
 
+
 @dataclass
 class SettingsTraining:
     dataset_raw: str
@@ -39,9 +40,6 @@ class SettingsTraining:
     rotate_inference: bool = False
     use_ecnn: bool = False
     use_ecnn_cont: bool = False
-    mask: bool = False
-    rotate_inputs: int = 0
-    data_n: int = -1
     crop: bool = False
     equivariance_case: str = "none"
 
@@ -60,14 +58,26 @@ class SettingsTraining:
             assert self.test is False, "Test is not possible in train mode"
 
         if self.case in ["test", "finetune"]:
-            assert self.model != "runs/default", "Please specify model path for testing or finetuning"
+            assert self.model != "runs/default", (
+                "Please specify model path for testing or finetuning"
+            )
 
         if self.destination == "":
-            self.destination = self.dataset_raw + " restricted_" + str(self.data_n) +" inputs_" + self.inputs + " rotate_inputs_ " + str(self.rotate_inputs) + " mask_" + str(self.mask) + " case_" + self.case + " augmentation_n_" + str(self.augmentation_n) + " equivariance_case_" + str(self.equivariance_case)
+            self.destination = (
+                self.dataset_raw
+                + " inputs_"
+                + self.inputs
+                + " case_"
+                + self.case
+                + " augmentation_n_"
+                + str(self.augmentation_n)
+                + " equivariance_case_"
+                + str(self.equivariance_case)
+            )
 
     def save(self):
         save_yaml(self.__dict__, self.destination, "command_line_arguments")
-        
+
     def make_destination_path(self, destination_dir: pathlib.Path):
         self.destination = destination_dir / self.destination
         self.destination.mkdir(exist_ok=True)

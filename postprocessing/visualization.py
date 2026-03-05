@@ -20,30 +20,34 @@ import processing.rotation as rt
 
 # TODO: look at vispy library for plotting 3D data
 
+
 @dataclass
 class DataToVisualize:
     data: np.ndarray
     name: str
-    extent_highs :tuple = (1280,100) # x,y in meters
+    extent_highs: tuple = (1280, 100)  # x,y in meters
     imshowargs: Dict = field(default_factory=dict)
     contourfargs: Dict = field(default_factory=dict)
     contourargs: Dict = field(default_factory=dict)
 
     def __post_init__(self):
-        extent = (0,int(self.extent_highs[0]),int(self.extent_highs[1]),0)
+        extent = (0, int(self.extent_highs[0]), int(self.extent_highs[1]), 0)
 
-        self.imshowargs = {"cmap": "RdBu_r", 
-                           "extent": extent}
+        self.imshowargs = {"cmap": "RdBu_r", "extent": extent}
 
-        self.contourfargs = {"levels": np.arange(10.4, 16, 0.25), 
-                             "cmap": "RdBu_r", 
-                             "extent": extent}
-        
+        self.contourfargs = {
+            "levels": np.arange(10.4, 16, 0.25),
+            "cmap": "RdBu_r",
+            "extent": extent,
+        }
+
         T_gwf = 10.6
         T_inj_diff = 5.0
-        self.contourargs = {"levels" : [np.round(T_gwf + 1, 1)],
-                            "cmap" : "Pastel1", 
-                            "extent": extent}
+        self.contourargs = {
+            "levels": [np.round(T_gwf + 1, 1)],
+            "cmap": "Pastel1",
+            "extent": extent,
+        }
 
         if self.name == "Liquid Pressure [Pa]":
             self.name = "Pressure in [Pa]"
@@ -53,8 +57,18 @@ class DataToVisualize:
             self.name = "Permeability in [m$^2$]"
         elif self.name == "SDF":
             self.name = "SDF-transformed position in [-]"
-    
-def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_datapoints_to_visu: int = inf, plot_path: str = "default", pic_format: str = "png", rotate_inference: bool = False, mask: bool = False, crop: bool = False):
+
+
+def visualizations(
+    model: UNet,
+    dataloader: DataLoader,
+    device: str,
+    amount_datapoints_to_visu: int = inf,
+    plot_path: str = "default",
+    pic_format: str = "png",
+    rotate_inference: bool = False,
+    crop: bool = False,
+):
     print("Visualizing...", end="\r")
 
     if amount_datapoints_to_visu > len(dataloader.dataset):
@@ -63,8 +77,10 @@ def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_data
     norm = dataloader.dataset.dataset.norm
     info = dataloader.dataset.dataset.info
     model.eval()
-    settings_pic = {"format": pic_format,
-                    "dpi": 600,}
+    settings_pic = {
+        "format": pic_format,
+        "dpi": 600,
+    }
 
     current_id = 0
     for inputs, labels in dataloader:
@@ -78,48 +94,77 @@ def visualizations(model: UNet, dataloader: DataLoader, device: str, amount_data
 
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
-                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device, mask, crop).to(device)
-                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
+                y_out = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop
+                ).to(device)
+                x = (
+                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    if crop
+                    else x
+                )
             else:
-                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
+                x = (
+                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    if crop
+                    else x
+                )
                 y_out = model(x).to(device)
-
-            # apply circular mask
-            if mask and not crop:
-                y = rt.mask_tensor(y.cpu()).to(device)
-                y_out = rt.mask_tensor(y_out.cpu()[0]).unsqueeze(0).to(device)
 
             x, y, y_out = reverse_norm_one_dp(x, y, y_out, norm)
             dict_to_plot = prepare_data_to_plot(x, y, y_out, info)
-            
-            np.save(f'{plot_path}_label_{current_id}.npy', dict_to_plot['t_true'].data.T.numpy())
-            np.save(f'{plot_path}_prediction_{current_id}.npy', dict_to_plot['t_out'].data.T.numpy())
-            
+
+            np.save(
+                f"{plot_path}_label_{current_id}.npy",
+                dict_to_plot["t_true"].data.T.numpy(),
+            )
+            np.save(
+                f"{plot_path}_prediction_{current_id}.npy",
+                dict_to_plot["t_out"].data.T.numpy(),
+            )
+
             plot_datafields(dict_to_plot, name_pic, settings_pic)
             # plot_isolines(dict_to_plot, name_pic, settings_pic)
             # measure_len_width_1K_isoline(dict_to_plot)
 
-            if current_id >= amount_datapoints_to_visu-1:
+            if current_id >= amount_datapoints_to_visu - 1:
                 return None
             current_id += 1
 
-def reverse_norm_one_dp(x: torch.Tensor, y: torch.Tensor, y_out:torch.Tensor, norm: NormalizeTransform):
+
+def reverse_norm_one_dp(
+    x: torch.Tensor, y: torch.Tensor, y_out: torch.Tensor, norm: NormalizeTransform
+):
     # reverse transform for plotting real values
     x = norm.reverse(x.detach().cpu().squeeze(0), "Inputs")
-    y = norm.reverse(y.detach().cpu(),"Labels")[0]
-    y_out = norm.reverse(y_out.detach().cpu()[0],"Labels")[0]
+    y = norm.reverse(y.detach().cpu(), "Labels")[0]
+    y_out = norm.reverse(y_out.detach().cpu()[0], "Labels")[0]
     return x, y, y_out
 
-def prepare_data_to_plot(x: torch.Tensor, y: torch.Tensor, y_out:torch.Tensor, info: dict):
+
+def prepare_data_to_plot(
+    x: torch.Tensor, y: torch.Tensor, y_out: torch.Tensor, info: dict
+):
     # prepare data of temperature true, temperature out, error, physical variables (inputs)
     temp_max = max(y.max(), y_out.max())
     temp_min = min(y.min(), y_out.min())
-    extent_highs = (np.array(info["CellsSize"][:2]) * x.shape[-2:])
+    extent_highs = np.array(info["CellsSize"][:2]) * x.shape[-2:]
 
     dict_to_plot = {
-        "t_true": DataToVisualize(y, "Label: Temperature in [°C]", extent_highs, {"vmax": temp_max, "vmin": temp_min}),
-        "t_out": DataToVisualize(y_out, "Prediction: Temperature in [°C]", extent_highs, {"vmax": temp_max, "vmin": temp_min}),
-        "error": DataToVisualize(torch.abs(y-y_out), "Absolute error in [°C]", extent_highs),
+        "t_true": DataToVisualize(
+            y,
+            "Label: Temperature in [°C]",
+            extent_highs,
+            {"vmax": temp_max, "vmin": temp_min},
+        ),
+        "t_out": DataToVisualize(
+            y_out,
+            "Prediction: Temperature in [°C]",
+            extent_highs,
+            {"vmax": temp_max, "vmin": temp_min},
+        ),
+        "error": DataToVisualize(
+            torch.abs(y - y_out), "Absolute error in [°C]", extent_highs
+        ),
     }
     inputs = info["Inputs"].keys()
     for input in inputs:
@@ -128,17 +173,20 @@ def prepare_data_to_plot(x: torch.Tensor, y: torch.Tensor, y_out:torch.Tensor, i
 
     return dict_to_plot
 
-def plot_datafields(data: Dict[str, DataToVisualize], name_pic: str, settings_pic: dict):
+
+def plot_datafields(
+    data: Dict[str, DataToVisualize], name_pic: str, settings_pic: dict
+):
     # plot datafields (temperature true, temperature out, error, physical variables (inputs))
     fontsize = 8
     num_subplots = len(data)
     fig, axes = plt.subplots(num_subplots, 1, sharex=True)
     fig.set_figheight(num_subplots)
-    
+
     for index, (name, datapoint) in enumerate(data.items()):
         plt.sca(axes[index])
         plt.title(datapoint.name, fontsize=fontsize, pad=10)
-        # if name in ["t_true", "t_out"]:  
+        # if name in ["t_true", "t_out"]:
         #     with warnings.catch_warnings():
         #         warnings.simplefilter("ignore")
 
@@ -148,15 +196,16 @@ def plot_datafields(data: Dict[str, DataToVisualize], name_pic: str, settings_pi
         plt.gca().invert_yaxis()
 
         plt.ylabel("x [m]", fontsize=fontsize)
-        plt.tick_params(axis='both', labelsize=fontsize)
+        plt.tick_params(axis="both", labelsize=fontsize)
 
         _aligned_colorbar(fontsize=fontsize)
-        plt.tick_params(axis='both', labelsize=fontsize)
+        plt.tick_params(axis="both", labelsize=fontsize)
 
     plt.sca(axes[-1])
     plt.xlabel("y [m]", fontsize=fontsize)
     plt.tight_layout()
     plt.savefig(f"{name_pic}.{settings_pic['format']}", **settings_pic)
+
 
 def plot_isolines(data: Dict[str, DataToVisualize], name_pic: str, settings_pic: dict):
     # plot isolines of temperature fields
@@ -168,7 +217,7 @@ def plot_isolines(data: Dict[str, DataToVisualize], name_pic: str, settings_pic:
         try:
             plt.sca(axes[index])
             data[name].data = torch.flip(data[name].data, dims=[1])
-            plt.title("Isolines of "+data[name].name)
+            plt.title("Isolines of " + data[name].name)
             plt.contourf(data[name].data.T, **data[name].contourfargs)
             plt.ylabel("x [m]")
             _aligned_colorbar(ticks=[11.6, 15.6])
@@ -180,12 +229,20 @@ def plot_isolines(data: Dict[str, DataToVisualize], name_pic: str, settings_pic:
     plt.tight_layout()
     plt.savefig(f"{name_pic}_isolines.{settings_pic['format']}", **settings_pic)
 
-def infer_all_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, rotate_inference: bool = False, mask: bool = False, angle: int = 0, crop: bool = False):
-    '''
+
+def infer_all_and_summed_pic(
+    model: UNet,
+    dataloader: DataLoader,
+    device: str,
+    rotate_inference: bool = False,
+    angle: int = 0,
+    crop: bool = False,
+):
+    """
     sum inference time (including reverse-norming) and pixelwise error over all datapoints
     the angle parameter is only used for testing of equivariance
-    '''
-    
+    """
+
     norm = dataloader.dataset.dataset.norm
     info = dataloader.dataset.dataset.info
     model.eval()
@@ -198,54 +255,70 @@ def infer_all_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, r
         len_batch = inputs.shape[0]
         for datapoint_id in range(len_batch):
             # get data
-            #start_time = time.perf_counter()
-            x = rt.rotate(inputs[datapoint_id],angle).to(device)
+            # start_time = time.perf_counter()
+            x = rt.rotate(inputs[datapoint_id], angle).to(device)
             x = torch.unsqueeze(x, 0)
 
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
                 start_time = time.perf_counter()
-                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device, crop).to(device)
-                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
+                y_out = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop
+                ).to(device)
+                x = (
+                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    if crop
+                    else x
+                )
             else:
-                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device) if crop else x
+                x = (
+                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    if crop
+                    else x
+                )
                 start_time = time.perf_counter()
                 y_out = model(x).to(device)
-            
-            avg_inference_time += (time.perf_counter() - start_time)
-            
-            y = rt.rotate(labels[datapoint_id],angle)
+
+            avg_inference_time += time.perf_counter() - start_time
+
+            y = rt.rotate(labels[datapoint_id], angle)
             y = rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y
-            # apply circular mask
-            if mask and not crop:
-                y = rt.mask_tensor(y.cpu()).to(device)
-                y_out = rt.mask_tensor(y_out.cpu()[0]).unsqueeze(0).to(device)
 
             # reverse transform for plotting real values
             x = norm.reverse(x.cpu().detach().squeeze(), "Inputs")
-            y = norm.reverse(y.cpu().detach(),"Labels")[0]
-            y_out = norm.reverse(y_out.cpu().detach()[0],"Labels")[0]
-            #avg_inference_time += (time.perf_counter() - start_time)
-            summed_error_pic += abs(y-y_out)
+            y = norm.reverse(y.cpu().detach(), "Labels")[0]
+            y_out = norm.reverse(y_out.cpu().detach()[0], "Labels")[0]
+            # avg_inference_time += (time.perf_counter() - start_time)
+            summed_error_pic += abs(y - y_out)
 
             current_id += 1
 
     avg_inference_time /= current_id
     summed_error_pic /= current_id
-    return avg_inference_time, rt.rotate(summed_error_pic.unsqueeze(0), 360 - angle).squeeze(0)
+    return avg_inference_time, rt.rotate(
+        summed_error_pic.unsqueeze(0), 360 - angle
+    ).squeeze(0)
 
-def infer_all_rotate_and_summed_pic(model: UNet, dataloader: DataLoader, device: str, rotate_inference: bool = False, mask: bool = True, angle: int = 0):
-    '''
+
+def infer_all_rotate_and_summed_pic(
+    model: UNet,
+    dataloader: DataLoader,
+    device: str,
+    rotate_inference: bool = False,
+    angle: int = 0,
+    crop: bool = False,
+):
+    """
     sum inference time (including reverse-norming)
     pixelwise error between all datapoints and all rotated datapoints
-    '''
-    
+    """
+
     norm = dataloader.dataset.dataset.norm
     info = dataloader.dataset.dataset.info
     model.eval()
 
     current_id = 0
-    summed_error_pic = torch.zeros_like(torch.Tensor(dataloader.dataset[0][0][0])).cpu()
+    summed_error_pic = None
 
     for inputs, _ in dataloader:
         len_batch = inputs.shape[0]
@@ -253,31 +326,40 @@ def infer_all_rotate_and_summed_pic(model: UNet, dataloader: DataLoader, device:
             # get data
             x = inputs[datapoint_id].to(device)
             x = torch.unsqueeze(x, 0)
+            if crop:
+                x = rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
 
             # get rotated data
-            x_rot = rt.rotate(inputs[datapoint_id],angle).to(device)
+            x_rot = rt.rotate(inputs[datapoint_id], angle).to(device)
             x_rot = torch.unsqueeze(x_rot, 0)
+            if crop:
+                x_rot = rt.safe_center_crop(
+                    x_rot.cpu(), rt.get_safe_size(x_rot.cpu())
+                ).to(device)
 
             # get inference for rotated and unrotated data
             if rotate_inference:
-                y_out = rt.rotate_and_infer(x.squeeze(0), [-1,0], model, info, device).to(device)
-                y_out_rot = rt.rotate_and_infer(x_rot.squeeze(0), [-1,0], model, info, device).to(device)
+                y_out = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop
+                ).to(device)
+                y_out_rot = rt.rotate_and_infer(
+                    x_rot.squeeze(0), [-1, 0], model, info, device, crop
+                ).to(device)
             else:
                 y_out = model(x).to(device)
                 y_out_rot = model(x_rot).to(device)
-            
+
             # rotate prediction for rotated data back
             y_out_rot = rt.rotate(y_out_rot, 360 - angle)
 
-            if mask:
-                y_out = rt.mask_tensor(y_out.cpu()[0]).unsqueeze(0).to(device)
-                y_out_rot = rt.mask_tensor(y_out_rot.cpu()[0]).unsqueeze(0).to(device)
-
             # reverse transform for plotting real values
-            y_out_rot = norm.reverse(y_out_rot.cpu().detach()[0],"Labels")[0]
-            y_out = norm.reverse(y_out.cpu().detach()[0],"Labels")[0]
+            y_out_rot = norm.reverse(y_out_rot.cpu().detach()[0], "Labels")[0]
+            y_out = norm.reverse(y_out.cpu().detach()[0], "Labels")[0]
 
-            #calculate error between inference of rotated and unrotated input
+            if summed_error_pic is None:
+                summed_error_pic = torch.zeros_like(y_out).cpu()
+
+            # calculate error between inference of rotated and unrotated input
             summed_error_pic += abs(y_out - y_out_rot)
 
             current_id += 1
@@ -285,12 +367,15 @@ def infer_all_rotate_and_summed_pic(model: UNet, dataloader: DataLoader, device:
     summed_error_pic /= current_id
     return summed_error_pic
 
-def plot_avg_error_rotated_cellwise(dataloader, summed_error_pic_dif, settings_pic: dict, angle: int):
+
+def plot_avg_error_rotated_cellwise(
+    dataloader, summed_error_pic_dif, settings_pic: dict, angle: int
+):
     # plot avg error cellwise between predictions of rotated and unrotated inputs
 
     info = dataloader.dataset.dataset.info
-    extent_highs = (np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape)
-    extent = (0,int(extent_highs[0]),int(extent_highs[1]),0)
+    extent_highs = np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape
+    extent = (0, int(extent_highs[0]), int(extent_highs[1]), 0)
 
     plt.figure()
     plt.imshow(summed_error_pic_dif.T, cmap="RdBu_r", extent=extent)
@@ -301,14 +386,18 @@ def plot_avg_error_rotated_cellwise(dataloader, summed_error_pic_dif, settings_p
     _aligned_colorbar()
 
     plt.tight_layout()
-    plt.savefig(f"{settings_pic['folder']}/avg_error_dif_{angle}.{settings_pic['format']}", format=settings_pic['format'])
+    plt.savefig(
+        f"{settings_pic['folder']}/avg_error_dif_{angle}.{settings_pic['format']}",
+        format=settings_pic["format"],
+    )
+
 
 def plot_avg_error_cellwise(dataloader, summed_error_pic, settings_pic: dict):
     # plot avg error cellwise AND return time measurements for inference
 
     info = dataloader.dataset.dataset.info
-    extent_highs = (np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape)
-    extent = (0,int(extent_highs[0]),int(extent_highs[1]),0)
+    extent_highs = np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape
+    extent = (0, int(extent_highs[0]), int(extent_highs[1]), 0)
 
     plt.figure()
     plt.imshow(summed_error_pic.T, cmap="RdBu_r", extent=extent)
@@ -319,11 +408,14 @@ def plot_avg_error_cellwise(dataloader, summed_error_pic, settings_pic: dict):
     _aligned_colorbar()
 
     plt.tight_layout()
-    plt.savefig(f"{settings_pic['folder']}/avg_error.{settings_pic['format']}", format=settings_pic['format'])
+    plt.savefig(
+        f"{settings_pic['folder']}/avg_error.{settings_pic['format']}",
+        format=settings_pic["format"],
+    )
+
 
 def _aligned_colorbar(fontsize: int = -1, *args, **kwargs):
-    cax = make_axes_locatable(plt.gca()).append_axes(
-        "right", size=0.15, pad=0.05)
+    cax = make_axes_locatable(plt.gca()).append_axes("right", size=0.15, pad=0.05)
     if fontsize > 0:
         offset_text = cax.yaxis.get_offset_text()
         offset_text.set_fontsize(fontsize)
