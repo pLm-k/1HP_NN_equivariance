@@ -85,18 +85,23 @@ def init_data(settings: SettingsTraining, seed=1):
     datasets = random_split(
         dataset, get_splits(len(dataset), split_ratios), generator=generator
     )
+
+    should_precrop = settings.crop and (
+        settings.case == "train" or not settings.rotate_inference
+    )
+
     dataloaders = {}
     try:
         dataloaders["train"] = DataLoader(
             TrainDataset.augment_data(
-                datasets[0], settings.augmentation_n, settings.crop
+                datasets[0], settings.augmentation_n, should_precrop
             ),
             batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
         dataloaders["val"] = DataLoader(
-            TrainDataset.augment_data(datasets[1], 0, settings.crop),
+            TrainDataset.augment_data(datasets[1], 0, should_precrop),
             batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
@@ -104,7 +109,7 @@ def init_data(settings: SettingsTraining, seed=1):
     except:
         pass
     dataloaders["test"] = DataLoader(
-        TrainDataset.augment_data(datasets[2], 0, settings.crop),
+        TrainDataset.augment_data(datasets[2], 0, should_precrop),
         batch_size=settings.batch_size,
         shuffle=False,
         num_workers=0,
@@ -285,7 +290,7 @@ if __name__ == "__main__":
             "- 'ecnn': Uses equivariant UNet.\n"
         ),
     )
-    parser.add_argument("--crop", type=bool, default=False)
+    parser.add_argument("--crop", action="store_true", help="Crop data to safe center")
     args = parser.parse_args()
 
     # set equivariance case internally

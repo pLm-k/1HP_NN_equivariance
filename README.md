@@ -136,3 +136,71 @@
 - release for students to extend_plumes (Mar. '24): ed884f9fb3b8af9808f7abcfee9a0810e8c0fe03, branch release_24
 - release for students to work on first stage (e.g. rotational equivariance) (Mar. '24): 083bb976dfccc52d1, branch release_24
 - after equivariance thesis (Dec. '24): a097de9f2f48ff15f9ff274a9d6c875a48ef85aa
+
+## System Workflow Diagrams
+
+### Training Workflow
+
+```mermaid
+flowchart TD
+    %% Define Datasets
+    Raw["Raw Dataset<br>256x256 Unaligned"] --> |split| TrainSplit("Train Split 70%")
+    Raw --> |split| ValSplit("Validation Split 20%")
+
+    %% Pre-processing based on case
+    TrainSplit --> IsOriented{"is equivariance_case<br>oriented_boxes?"}
+    IsOriented -- Yes --> Align["Rotate & Align Gradients<br>[-1, 0]"]
+    IsOriented -- "No (ecnn/none)" --> NoAlign["Keep Unaligned"]
+
+    Align --> IsCrop{"is crop set?"}
+    NoAlign --> IsCrop
+
+    IsCrop -- Yes --> Crop["Crop to Safe Center<br>176x176"]
+    IsCrop -- No --> NoCrop["Keep Full Size<br>256x256"]
+
+    %% Training
+    Crop --> Train["Train Model<br>CNN or ECNN"]
+    NoCrop --> Train
+
+    %% Validation loop
+    ValSplit --> ValCrop{"is crop set?"}
+    ValCrop -- Yes --> VCrop["Crop to Safe Center"]
+    ValCrop -- No --> VNoCrop["Keep Full Size"]
+    
+    VCrop --> Val["Validate Model<br>Log Loss & Wandb"]
+    VNoCrop --> Val
+    Train --> Val
+```
+
+### Testing / Inference Workflow
+
+```mermaid
+flowchart TD
+    %% Testing Data
+    Raw["Test Dataset<br>256x256 Unaligned"] --> IsOriented{"is equivariance_case<br>oriented_boxes?"}
+
+    %% Oriented Boxes Logic
+    IsOriented -- Yes --> InferRot["Dynamic Rotation Inference"]
+    InferRot --> Align["Rotate Input to [-1, 0]"]
+    Align --> CheckCrop{"is crop set?"}
+    CheckCrop -- Yes --> DoCrop["Crop to Safe Center<br>176x176"]
+    CheckCrop -- No --> NoCrop["Keep Full Size<br>256x256"]
+    
+    DoCrop --> Forward["Model Forward Pass"]
+    NoCrop --> Forward
+    
+    Forward --> RotBack["Rotate Prediction Back"]
+    
+    %% Non-Oriented Logic (ECNN or standard)
+    IsOriented -- "No (ecnn/none)" --> StaticCrop{"is crop set?"}
+    StaticCrop -- Yes --> EcnnCrop["Static Crop to 176x176"]
+    StaticCrop -- No --> EcnnNoCrop["Keep 256x256"]
+    
+    EcnnCrop --> StandardForward["Model Forward Pass"]
+    EcnnNoCrop --> StandardForward
+    
+    %% Output
+    RotBack --> Out["Visualizations &<br>Metrics Calculation"]
+    StandardForward --> Out
+```
+

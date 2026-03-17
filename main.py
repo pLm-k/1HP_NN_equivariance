@@ -66,18 +66,25 @@ def init_data(settings: SettingsTraining, seed=1):
     datasets = random_split(
         dataset, get_splits(len(dataset), split_ratios), generator=generator
     )
+
+    # Only pre-crop datasets if they are already aligned (train mode) or if we aren't using rotation inference
+    # If we are in test mode and using rotation inference, we must keep full size to allow dynamic rotation without losing corners
+    should_precrop = settings.crop and (
+        settings.case == "train" or not settings.rotate_inference
+    )
+
     dataloaders = {}
     try:
         dataloaders["train"] = DataLoader(
             TrainDataset.augment_data(
-                datasets[0], settings.augmentation_n, settings.crop
+                datasets[0], settings.augmentation_n, should_precrop
             ),
             batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
         )
         dataloaders["val"] = DataLoader(
-            TrainDataset.augment_data(datasets[1], 0, settings.crop),
+            TrainDataset.augment_data(datasets[1], 0, should_precrop),
             batch_size=settings.batch_size,
             shuffle=True,
             num_workers=0,
@@ -85,7 +92,7 @@ def init_data(settings: SettingsTraining, seed=1):
     except:
         pass
     dataloaders["test"] = DataLoader(
-        TrainDataset.augment_data(datasets[2], 0, settings.crop),
+        TrainDataset.augment_data(datasets[2], 0, should_precrop),
         batch_size=settings.batch_size,
         shuffle=False,
         num_workers=0,
@@ -166,6 +173,13 @@ def run(settings: SettingsTraining):
     which_dataset = "val"
     pic_format = "png"
     times["time_end"] = time.perf_counter()
+
+    # If dataloader already cropped the data, don't crop again in postprocessing
+    should_precrop = settings.crop and (
+        settings.case == "train" or not settings.rotate_inference
+    )
+    postprocess_crop = settings.crop and not should_precrop
+
     if settings.case == "test":
         settings.visualize = True
         which_dataset = "test"
@@ -174,7 +188,7 @@ def run(settings: SettingsTraining):
             dataloaders,
             settings,
             rotate_inference=settings.rotate_inference,
-            crop=settings.crop,
+            crop=postprocess_crop,
         )
         print(
             "----------------------------------------------------------------------------------"
@@ -195,7 +209,7 @@ def run(settings: SettingsTraining):
             pic_format=pic_format,
             amount_datapoints_to_visu=10,
             rotate_inference=settings.rotate_inference,
-            crop=settings.crop,
+            crop=postprocess_crop,
         )  # amount_datapoints_to_visu=5,
         times[f"avg_inference_time of {which_dataset}"], summed_error_pic = (
             infer_all_and_summed_pic(
@@ -203,7 +217,7 @@ def run(settings: SettingsTraining):
                 dataloaders[which_dataset],
                 settings.device,
                 rotate_inference=settings.rotate_inference,
-                crop=settings.crop,
+                crop=postprocess_crop,
             )
         )
         mean_error_strings = []
@@ -215,7 +229,7 @@ def run(settings: SettingsTraining):
                 settings.device,
                 rotate_inference=settings.rotate_inference,
                 angle=angle,
-                crop=settings.crop,
+                crop=postprocess_crop,
             )
             plot_avg_error_rotated_cellwise(
                 dataloaders[which_dataset],
@@ -355,6 +369,7 @@ if __name__ == "__main__":
             "- 'ecnn': Uses equivariant UNet.\n"
         ),
     )
+    parser.add_argument("--crop", action="store_true", help="Crop data to safe center")
     args = parser.parse_args()
 
     # set equivariance case internally
