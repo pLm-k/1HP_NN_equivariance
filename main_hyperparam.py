@@ -142,6 +142,7 @@ def run_eval(config=None):
         settings_dict = {
             k: str(v) if isinstance(v, pathlib.Path) else v
             for k, v in settings_global.__dict__.items()
+            if k not in config  # only add settings that are not already in the sweep config
         }
         wandb.config.update(settings_dict, allow_val_change=True)
 
