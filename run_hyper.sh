@@ -15,4 +15,5 @@ python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_right \
     --epochs 1000 \
     --num_data_points 500 \
     --equivariance_case ecnn \
+    --crop \
     --inputs pk
