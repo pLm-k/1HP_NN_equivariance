@@ -12,7 +12,6 @@ import random
 
 from data_stuff.transforms import NormalizeTransform
 from processing.rotation import (
-    mask_tensor,
     rotate,
     get_rotation_angle,
     get_pressure_grad,
@@ -182,7 +181,7 @@ class TrainDataset(Dataset):
         if len(remove_ranges) == 0:
             return dataset_in
 
-        dataset = dataset_in.dataset
+        dataset = dataset_in
         # get data from original dataset
         inputs = [dataset[i][0] for i in range(len(dataset))]
         labels = [dataset[i][1] for i in range(len(dataset))]
@@ -222,7 +221,7 @@ class TrainDataset(Dataset):
             Subset: A PyTorch Subset object wrapping the new cropped dataset.
         """
 
-        dataset = dataset_in.dataset
+        dataset = dataset_in
         # Get data from original dataset
         inputs = [dataset[i][0] for i in range(len(dataset))]
         labels = [dataset[i][1] for i in range(len(dataset))]
