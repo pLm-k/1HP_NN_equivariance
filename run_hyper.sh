@@ -11,7 +11,8 @@
 source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
 
 python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_right \
-    --inputs pksi \
     --device 'cuda:0'\
-    --epochs 6000 \
-    --data_n 3000 \
+    --epochs 1000 \
+    --num_data_points 500 \
+    --equivariance_case ecnn \
+    --inputs pk

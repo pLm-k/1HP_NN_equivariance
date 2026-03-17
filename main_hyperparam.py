@@ -1,6 +1,7 @@
 import argparse
 import logging
 import multiprocessing
+import pathlib
 import numpy as np
 import time
 import torch
@@ -32,19 +33,19 @@ from postprocessing.visualization import (
 from postprocessing.measurements import measure_loss, save_all_measurements
 
 sweep_config = {
-    "method": "grid",
+    "method": "bayes",
     "name": "1HP_NN_features",
     "metric": {"name": "val RMSE", "goal": "minimize"},
 }
 parameters_dict = {
     "init_features": {
-        "values": [32]  # 2,3,4
+        "values": [32, 64, 128]  # 2,3,4
     },
     "rotation_n": {
-        "values": [4]  # 2,4,8
+        "values": [4, 8, 16]  # 2,4,8
     },
-    "batch_size": {"values": [50]},
-    "lr_factor": {"values": [1.0]},
+    "batch_size": {"values": [32, 64]},
+    "lr_factor": {"distribution": "log_uniform_values", "min": 0.1, "max": 1.0},
 }
 sweep_config["parameters"] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity="1hpnn", project="hyperparam_features")
@@ -131,6 +132,14 @@ def run_eval(config=None):
         model_name = "CNN"
     with wandb.init(config=config, tags=[model_name]):
         config = wandb.config
+
+        # update wandb config with all global settings so everything is logged
+        settings_dict = {
+            k: str(v) if isinstance(v, pathlib.Path) else v
+            for k, v in settings_global.__dict__.items()
+        }
+        wandb.config.update(settings_dict, allow_val_change=True)
+
         settings = settings_global
         settings.batch_size = config.batch_size
         settings.lr_factor = config.lr_factor
