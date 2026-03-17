@@ -18,6 +18,7 @@ def rotate_and_infer(
     info,
     device: str,
     crop: bool = False,
+    return_angle: bool = False,
 ) -> torch.tensor:
     # calculate gradient and get angle for aligning data point
     angle = get_rotation_angle(get_pressure_grad(datapoint, info), grad_vec)
@@ -29,6 +30,9 @@ def rotate_and_infer(
 
     # get inference
     y_out = model(x.unsqueeze(0))
+
+    if return_angle:
+        return y_out, angle
 
     # rotate result back
     y_out = rotate(y_out, 360 - angle)
@@ -43,12 +47,26 @@ def rotate_and_infer_batch(
     info,
     device: str,
     crop: bool = False,
+    return_angles: bool = False,
 ) -> torch.tensor:
     y_out_list = []
+    angles = []
     for datapoint in batch:
-        y_out_list.append(
-            rotate_and_infer(datapoint, grad_vec, model, info, device, crop).squeeze(0)
-        )
+        if return_angles:
+            y_out, angle = rotate_and_infer(
+                datapoint, grad_vec, model, info, device, crop, return_angle=True
+            )
+            y_out_list.append(y_out.squeeze(0))
+            angles.append(angle)
+        else:
+            y_out_list.append(
+                rotate_and_infer(
+                    datapoint, grad_vec, model, info, device, crop
+                ).squeeze(0)
+            )
+
+    if return_angles:
+        return torch.stack(y_out_list), angles
     return torch.stack(y_out_list)
 
 

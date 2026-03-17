@@ -112,18 +112,31 @@ def measure_loss(
 
         for x, y in dataloader:
             x = x.to(device).detach()  # B,C,H,W
-            y = (
-                (rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y)
-                .to(device)
-                .detach()
-            )
             if rotate_inference:
-                y_pred = (
-                    rt.rotate_and_infer_batch(x, [-1, 0], model, info, device, crop)
+                # To avoid rotation artifacts (NaN/black corners) in the loss calculation,
+                # we do NOT rotate the prediction back. Instead, we rotate the ground truth
+                # forward, crop it to the safe center, and compute the loss in the aligned space.
+                y_pred, angles = rt.rotate_and_infer_batch(
+                    x, [-1, 0], model, info, device, crop, return_angles=True
+                )
+                y_pred = y_pred.to(device).detach()
+
+                # Rotate and crop ground truth 'y' to match the aligned 'y_pred'
+                y_list = []
+                for i in range(y.shape[0]):
+                    y_rotated = rt.rotate(y[i], angles[i])
+                    if crop:
+                        y_rotated = rt.safe_center_crop(
+                            y_rotated, rt.get_safe_size(y_rotated)
+                        )
+                    y_list.append(y_rotated)
+                y = torch.stack(y_list).to(device).detach()
+            else:
+                y = (
+                    (rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y)
                     .to(device)
                     .detach()
                 )
-            else:
                 y_pred = (
                     model(
                         (

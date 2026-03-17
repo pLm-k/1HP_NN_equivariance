@@ -189,7 +189,8 @@ flowchart TD
     DoCrop --> Forward["Model Forward Pass"]
     NoCrop --> Forward
     
-    Forward --> RotBack["Rotate Prediction Back"]
+    Forward --> RotGT["Rotate Ground Truth<br>to match Input [-1, 0]"]
+    RotGT --> CropGT["Crop Ground Truth<br>to match Prediction"]
     
     %% Non-Oriented Logic (ECNN or standard)
     IsOriented -- "No (ecnn/none)" --> StaticCrop{"is crop set?"}
@@ -200,7 +201,7 @@ flowchart TD
     EcnnNoCrop --> StandardForward
     
     %% Output
-    RotBack --> Out["Visualizations &<br>Metrics Calculation"]
+    CropGT --> Out["Visualizations &<br>Metrics Calculation"]
     StandardForward --> Out
 ```
 

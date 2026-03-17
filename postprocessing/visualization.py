@@ -94,13 +94,27 @@ def visualizations(
 
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
-                y_out = rt.rotate_and_infer(
-                    x.squeeze(0), [-1, 0], model, info, device, crop
-                ).to(device)
+                y_out, angle = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop, return_angle=True
+                )
+                y_out = y_out.to(device)
+
+                # We also rotate and crop the ground truth to match the aligned prediction
+                y_aligned = rt.rotate(y, angle)
+                if crop:
+                    y_aligned = rt.safe_center_crop(
+                        y_aligned, rt.get_safe_size(y_aligned)
+                    )
+                y = y_aligned
+
+                # Rotate and crop the input so visualization aligns with prediction
+                x_aligned = rt.rotate(x, angle)
                 x = (
-                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    rt.safe_center_crop(
+                        x_aligned.cpu(), rt.get_safe_size(x_aligned.cpu())
+                    ).to(device)
                     if crop
-                    else x
+                    else x_aligned.to(device)
                 )
             else:
                 x = (
@@ -249,7 +263,7 @@ def infer_all_and_summed_pic(
 
     current_id = 0
     avg_inference_time = 0
-    summed_error_pic = torch.zeros_like(torch.Tensor(dataloader.dataset[0][0][0])).cpu()
+    summed_error_pic = None
 
     for inputs, labels in dataloader:
         len_batch = inputs.shape[0]
@@ -262,13 +276,31 @@ def infer_all_and_summed_pic(
             # rotate data point if Oriented Boxes approach is used
             if rotate_inference:
                 start_time = time.perf_counter()
-                y_out = rt.rotate_and_infer(
-                    x.squeeze(0), [-1, 0], model, info, device, crop
-                ).to(device)
+                y_out, infer_angle = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop, return_angle=True
+                )
+                y_out = y_out.to(device)
+
+                # Rotate y forward instead of evaluating in original space
+                y_aligned = rt.rotate(
+                    labels[datapoint_id], angle
+                )  # apply prior rotation (equivariance test angle)
+                y_aligned = rt.rotate(
+                    y_aligned, infer_angle
+                )  # apply alignment rotation
+                if crop:
+                    y_aligned = rt.safe_center_crop(
+                        y_aligned, rt.get_safe_size(y_aligned)
+                    )
+                y = y_aligned
+
+                x_aligned = rt.rotate(x, infer_angle)
                 x = (
-                    rt.safe_center_crop(x.cpu(), rt.get_safe_size(x.cpu())).to(device)
+                    rt.safe_center_crop(
+                        x_aligned.cpu(), rt.get_safe_size(x_aligned.cpu())
+                    ).to(device)
                     if crop
-                    else x
+                    else x_aligned.to(device)
                 )
             else:
                 x = (
@@ -279,15 +311,19 @@ def infer_all_and_summed_pic(
                 start_time = time.perf_counter()
                 y_out = model(x).to(device)
 
-            avg_inference_time += time.perf_counter() - start_time
+                y = rt.rotate(labels[datapoint_id], angle)
+                y = rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y
 
-            y = rt.rotate(labels[datapoint_id], angle)
-            y = rt.safe_center_crop(y, rt.get_safe_size(y)) if crop else y
+            avg_inference_time += time.perf_counter() - start_time
 
             # reverse transform for plotting real values
             x = norm.reverse(x.cpu().detach().squeeze(), "Inputs")
             y = norm.reverse(y.cpu().detach(), "Labels")[0]
             y_out = norm.reverse(y_out.cpu().detach()[0], "Labels")[0]
+
+            if summed_error_pic is None:
+                summed_error_pic = torch.zeros_like(y_out).cpu()
+
             # avg_inference_time += (time.perf_counter() - start_time)
             summed_error_pic += abs(y - y_out)
 
@@ -295,9 +331,13 @@ def infer_all_and_summed_pic(
 
     avg_inference_time /= current_id
     summed_error_pic /= current_id
-    return avg_inference_time, rt.rotate(
-        summed_error_pic.unsqueeze(0), 360 - angle
-    ).squeeze(0)
+
+    if rotate_inference:
+        return avg_inference_time, summed_error_pic
+    else:
+        return avg_inference_time, rt.rotate(
+            summed_error_pic.unsqueeze(0), 360 - angle
+        ).squeeze(0)
 
 
 def infer_all_rotate_and_summed_pic(
@@ -339,18 +379,31 @@ def infer_all_rotate_and_summed_pic(
 
             # get inference for rotated and unrotated data
             if rotate_inference:
-                y_out = rt.rotate_and_infer(
-                    x.squeeze(0), [-1, 0], model, info, device, crop
-                ).to(device)
-                y_out_rot = rt.rotate_and_infer(
-                    x_rot.squeeze(0), [-1, 0], model, info, device, crop
-                ).to(device)
+                # To compare them without artifacts, we align both to the flow direction!
+                y_out, infer_angle = rt.rotate_and_infer(
+                    x.squeeze(0), [-1, 0], model, info, device, crop, return_angle=True
+                )
+                y_out = y_out.to(device)
+
+                y_out_rot, infer_angle_rot = rt.rotate_and_infer(
+                    x_rot.squeeze(0),
+                    [-1, 0],
+                    model,
+                    info,
+                    device,
+                    crop,
+                    return_angle=True,
+                )
+                y_out_rot = y_out_rot.to(device)
+
+                # They are both aligned to [-1, 0]. But their original starting orientations differed by `angle`.
+                # Because the physical situation is the same (just rotated), their ALIGNED predictions
+                # should ideally be identical! So we can just compare them directly in aligned space.
             else:
                 y_out = model(x).to(device)
                 y_out_rot = model(x_rot).to(device)
-
-            # rotate prediction for rotated data back
-            y_out_rot = rt.rotate(y_out_rot, 360 - angle)
+                # rotate prediction for rotated data back
+                y_out_rot = rt.rotate(y_out_rot, 360 - angle)
 
             # reverse transform for plotting real values
             y_out_rot = norm.reverse(y_out_rot.cpu().detach()[0], "Labels")[0]
