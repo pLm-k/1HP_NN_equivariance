@@ -44,6 +44,7 @@ class SettingsTraining:
     equivariance_case: str = "none"
     batch_size: int = 50
     lr_factor: float = 1.0
+    num_data_points: int = -1
 
     def __post_init__(self):
         if self.case in ["finetune", "finetuning", "Finetune", "Finetuning"]:

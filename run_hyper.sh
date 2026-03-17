@@ -12,9 +12,6 @@ source /import/sgs.scratch/miliczpl/cnn_env/bin/activate
 
 python main_hyperparam.py --dataset_raw dataset_square_1000dp_p_right \
     --inputs pksi \
-    --equivariance_case oriented_boxes \
     --device 'cuda:0'\
     --epochs 6000 \
     --data_n 3000 \
-    --rotate_inputs -1 \
-    --destination '/import/sgs.scratch/miliczpl/models/right/oriented_cnn_1000' \

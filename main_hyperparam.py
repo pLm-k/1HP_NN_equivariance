@@ -43,12 +43,8 @@ parameters_dict = {
     "rotation_n": {
         "values": [4]  # 2,4,8
     },
-    "batch_size": {
-        "values": [50]
-    },
-    "lr_factor": {
-        "values": [1.0]
-    },
+    "batch_size": {"values": [50]},
+    "lr_factor": {"values": [1.0]},
 }
 sweep_config["parameters"] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity="1hpnn", project="hyperparam_features")
@@ -57,14 +53,21 @@ settings_global = None
 
 def init_data(settings: SettingsTraining, seed=1):
     if settings.problem == "2stages":
-        dataset = SimulationDataset(settings.dataset_prep)
+        dataset = SimulationDataset(
+            settings.dataset_prep, num_data_points=settings.num_data_points
+        )
     elif settings.problem == "extend1":
-        dataset = DatasetExtend1(settings.dataset_prep, box_size=settings.len_box)
+        dataset = DatasetExtend1(
+            settings.dataset_prep,
+            box_size=settings.len_box,
+            num_data_points=settings.num_data_points,
+        )
     elif settings.problem == "extend2":
         dataset = DatasetExtend2(
             settings.dataset_prep,
             box_size=settings.len_box,
             skip_per_dir=settings.skip_per_dir,
+            num_data_points=settings.num_data_points,
         )
         settings.inputs += "T"
     print(f"Length of dataset: {len(dataset)}")
@@ -255,6 +258,12 @@ if __name__ == "__main__":
     parser.add_argument("--len_box", type=int, default=256)
     parser.add_argument("--skip_per_dir", type=int, default=256)
     parser.add_argument("--augmentation_n", type=int, default=0)
+    parser.add_argument(
+        "--num_data_points",
+        type=int,
+        default=-1,
+        help="Limit number of data points. Negative means all points.",
+    )
     parser.add_argument(
         "--equivariance_case",
         type=str,

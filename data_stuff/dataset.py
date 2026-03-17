@@ -22,7 +22,7 @@ from processing.rotation import (
 
 
 class SimulationDataset(Dataset):
-    def __init__(self, path):
+    def __init__(self, path, num_data_points=-1):
         Dataset.__init__(self)
         self.path = pathlib.Path(path)
         self.input_names = []
@@ -33,6 +33,12 @@ class SimulationDataset(Dataset):
             self.label_names.append(filename)
         self.input_names.sort()
         self.label_names.sort()
+        if num_data_points > 0 and num_data_points < len(self.input_names):
+            indices = np.linspace(
+                0, len(self.input_names) - 1, num_data_points, dtype=int
+            )
+            self.input_names = [self.input_names[i] for i in indices]
+            self.label_names = [self.label_names[i] for i in indices]
         self.info = self.__load_info()
         self.norm = NormalizeTransform(self.info)
 
@@ -282,7 +288,7 @@ class TrainDataset(Dataset):
 
 
 class DatasetExtend1(Dataset):
-    def __init__(self, path: str, box_size: int = 64):
+    def __init__(self, path: str, box_size: int = 64, num_data_points: int = -1):
         Dataset.__init__(self)
         self.path = pathlib.Path(path)
         self.info = self.__load_info()
@@ -295,6 +301,12 @@ class DatasetExtend1(Dataset):
             self.label_names.append(filename)
         self.input_names.sort()
         self.label_names.sort()
+        if num_data_points > 0 and num_data_points < len(self.input_names):
+            indices = np.linspace(
+                0, len(self.input_names) - 1, num_data_points, dtype=int
+            )
+            self.input_names = [self.input_names[i] for i in indices]
+            self.label_names = [self.label_names[i] for i in indices]
         self.spatial_size = torch.load(
             self.path / "Inputs" / self.input_names[0]
         ).shape[1:]
@@ -327,7 +339,13 @@ class DatasetExtend1(Dataset):
 
 
 class DatasetExtend2(Dataset):
-    def __init__(self, path: str, skip_per_dir: int = 4, box_size: int = 64):
+    def __init__(
+        self,
+        path: str,
+        skip_per_dir: int = 4,
+        box_size: int = 64,
+        num_data_points: int = -1,
+    ):
         Dataset.__init__(self)
         self.path = pathlib.Path(path)
         self.info = self.__load_info()
@@ -340,6 +358,12 @@ class DatasetExtend2(Dataset):
             self.label_names.append(filename)
         self.input_names.sort()
         self.label_names.sort()
+        if num_data_points > 0 and num_data_points < len(self.input_names):
+            indices = np.linspace(
+                0, len(self.input_names) - 1, num_data_points, dtype=int
+            )
+            self.input_names = [self.input_names[i] for i in indices]
+            self.label_names = [self.label_names[i] for i in indices]
         self.spatial_size = torch.load(
             self.path / "Inputs" / self.input_names[0]
         ).shape[1:]
