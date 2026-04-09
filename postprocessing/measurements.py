@@ -15,6 +15,18 @@ from processing.solver import Solver
 from data_stuff.utils import SettingsTraining
 
 
+def _get_dataset_attr(dataset, attr_name: str):
+    """Walk through nested dataset wrappers and return the first matching attribute."""
+    current = dataset
+    while current is not None:
+        if hasattr(current, attr_name):
+            return getattr(current, attr_name)
+        current = getattr(current, "dataset", None)
+    raise AttributeError(
+        f"Could not find attribute '{attr_name}' on dataset or wrapped datasets."
+    )
+
+
 def measure_len_width_1K_isoline(data: Dict[str, "DataToVisualize"]):
     """
     function (for paper23) to measure the length and width of the 1K-isoline;
@@ -73,13 +85,10 @@ def measure_loss(
         pbt_threshold = [0.1]  # [°C] # only relevant for temperature
 
     device = settings.device
-    if settings.problem == "allin1":
-        norm = dataloaders["train"].dataset.norm
-        output_channels = dataloaders["train"].dataset.output_channels
-    elif settings.problem in ["1hp", "2stages"]:
-        norm = dataloaders["train"].dataset.dataset.norm
-        output_channels = dataloaders["train"].dataset.dataset.output_channels
-    info = dataloaders["train"].dataset.dataset.info
+    train_dataset = dataloaders["train"].dataset
+    norm = _get_dataset_attr(train_dataset, "norm")
+    output_channels = _get_dataset_attr(train_dataset, "output_channels")
+    info = _get_dataset_attr(train_dataset, "info")
     model.eval()
     results = {}
 

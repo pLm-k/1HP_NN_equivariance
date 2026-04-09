@@ -247,12 +247,18 @@ class Solver(object):
             for epoch, lr in self.lr_schedule.items():
                 f.write(f"{epoch},{lr}\n")
 
-    def load_lr_schedule(self, path: pathlib.Path, case_2hp: bool = False):
+    def load_lr_schedule(
+        self,
+        path: pathlib.Path,
+        case_2hp: bool = False,
+        force_default: bool = False,
+    ):
         """read lr-schedule from csv file"""
         # check if path contains lr-schedule, else use default one
-        if not path.exists():
+        loaded_from_default = False
+        if force_default or not path.exists():
             logging.warning(
-                f"Could not find lr-schedule at {path}. Using default lr-schedule instead."
+                f"Using default lr-schedule instead of {path}."
             )
             path = pathlib.Path.cwd() / "processing" / "lr_schedules"
             lr_schedule_file = (
@@ -261,8 +267,15 @@ class Solver(object):
                 else "default_lr_schedule_2hp.csv"
             )
             path = path / lr_schedule_file
+            loaded_from_default = True
 
         with open(path, "r") as f:
             for line in f:
                 epoch, lr = line.split(",")
-                self.lr_schedule[int(epoch)] = float(lr) * self.settings.lr_factor
+                # Only scale the built-in default schedule. Existing run-local
+                # schedules already contain effective LR values and must not be
+                # multiplied again across reruns.
+                if loaded_from_default:
+                    self.lr_schedule[int(epoch)] = float(lr) * self.settings.lr_factor
+                else:
+                    self.lr_schedule[int(epoch)] = float(lr)

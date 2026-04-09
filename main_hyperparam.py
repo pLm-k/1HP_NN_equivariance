@@ -39,13 +39,13 @@ sweep_config = {
 }
 parameters_dict = {
     "init_features": {
-        "values": [32, 64, 128]  # 2,3,4
+        "values": [32,64,128]  # 2,3,4
     },
     "rotation_n": {
-        "values": [4, 8, 16]  # 2,4,8
+        "values": [4,8,16]  # 2,4,8
     },
-    "batch_size": {"values": [32, 64]},
-    "lr_factor": {"distribution": "log_uniform_values", "min": 0.1, "max": 1.0},
+    "batch_size": {"values": [32,64,128]},
+    "lr_factor": {"distribution": "log_uniform_values", "min": 0.10, "max": 1.0},
 }
 sweep_config["parameters"] = parameters_dict
 sweep_id = wandb.sweep(sweep_config, entity="1hpnn", project="hyperparam_features")
@@ -103,7 +103,7 @@ def init_data(settings: SettingsTraining, seed=1):
         dataloaders["val"] = DataLoader(
             TrainDataset.augment_data(datasets[1], 0, should_precrop),
             batch_size=settings.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=0,
         )
     except:
@@ -197,6 +197,7 @@ def run_eval(config=None):
                 solver.load_lr_schedule(
                     settings.destination / "learning_rate_history.csv",
                     settings.case_2hp,
+                    settings.always_load_default_lr_schedule,
                 )
                 times["time_initializations"] = time.perf_counter()
                 solver.train(settings, use_wandb=True)
@@ -280,6 +281,14 @@ if __name__ == "__main__":
         help="Limit number of data points. Negative means all points.",
     )
     parser.add_argument(
+        "--always_load_default_lr_schedule",
+        action="store_true",
+        help=(
+            "Always load processing/lr_schedules/default_lr_schedule*.csv at run start "
+            "instead of reusing destination/learning_rate_history.csv."
+        ),
+    )
+    parser.add_argument(
         "--equivariance_case",
         type=str,
         choices=["none", "oriented_boxes", "ecnn", "ecnn_cont"],
@@ -308,4 +317,4 @@ if __name__ == "__main__":
     settings = prepare_data_and_paths(settings)
     settings_global = settings
 
-    wandb.agent(sweep_id, function=run_eval)
+    wandb.agent(sweep_id, function=run_eval, count=50)

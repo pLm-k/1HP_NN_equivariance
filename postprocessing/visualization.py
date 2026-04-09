@@ -21,6 +21,18 @@ import processing.rotation as rt
 # TODO: look at vispy library for plotting 3D data
 
 
+def _get_dataset_attr(dataset, attr_name: str):
+    """Walk through nested dataset wrappers and return the first matching attribute."""
+    current = dataset
+    while current is not None:
+        if hasattr(current, attr_name):
+            return getattr(current, attr_name)
+        current = getattr(current, "dataset", None)
+    raise AttributeError(
+        f"Could not find attribute '{attr_name}' on dataset or wrapped datasets."
+    )
+
+
 @dataclass
 class DataToVisualize:
     data: np.ndarray
@@ -74,8 +86,8 @@ def visualizations(
     if amount_datapoints_to_visu > len(dataloader.dataset):
         amount_datapoints_to_visu = len(dataloader.dataset)
 
-    norm = dataloader.dataset.dataset.norm
-    info = dataloader.dataset.dataset.info
+    norm = _get_dataset_attr(dataloader.dataset, "norm")
+    info = _get_dataset_attr(dataloader.dataset, "info")
     model.eval()
     settings_pic = {
         "format": pic_format,
@@ -257,8 +269,8 @@ def infer_all_and_summed_pic(
     the angle parameter is only used for testing of equivariance
     """
 
-    norm = dataloader.dataset.dataset.norm
-    info = dataloader.dataset.dataset.info
+    norm = _get_dataset_attr(dataloader.dataset, "norm")
+    info = _get_dataset_attr(dataloader.dataset, "info")
     model.eval()
 
     current_id = 0
@@ -353,8 +365,8 @@ def infer_all_rotate_and_summed_pic(
     pixelwise error between all datapoints and all rotated datapoints
     """
 
-    norm = dataloader.dataset.dataset.norm
-    info = dataloader.dataset.dataset.info
+    norm = _get_dataset_attr(dataloader.dataset, "norm")
+    info = _get_dataset_attr(dataloader.dataset, "info")
     model.eval()
 
     current_id = 0
@@ -426,7 +438,7 @@ def plot_avg_error_rotated_cellwise(
 ):
     # plot avg error cellwise between predictions of rotated and unrotated inputs
 
-    info = dataloader.dataset.dataset.info
+    info = _get_dataset_attr(dataloader.dataset, "info")
     extent_highs = np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape
     extent = (0, int(extent_highs[0]), int(extent_highs[1]), 0)
 
@@ -448,7 +460,7 @@ def plot_avg_error_rotated_cellwise(
 def plot_avg_error_cellwise(dataloader, summed_error_pic, settings_pic: dict):
     # plot avg error cellwise AND return time measurements for inference
 
-    info = dataloader.dataset.dataset.info
+    info = _get_dataset_attr(dataloader.dataset, "info")
     extent_highs = np.array(info["CellsSize"][:2]) * dataloader.dataset[0][0][0].shape
     extent = (0, int(extent_highs[0]), int(extent_highs[1]), 0)
 

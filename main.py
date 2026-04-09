@@ -86,7 +86,7 @@ def init_data(settings: SettingsTraining, seed=1):
         dataloaders["val"] = DataLoader(
             TrainDataset.augment_data(datasets[1], 0, should_precrop),
             batch_size=settings.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=0,
         )
     except:
@@ -123,7 +123,7 @@ def run(settings: SettingsTraining):
     if settings.problem == "2stages":
         if settings.use_ecnn:
             model = G_UNet(
-                in_channels=input_channels, init_features=32, rotation_n=4
+                in_channels=input_channels, init_features=64, rotation_n=8
             ).float()
         elif settings.use_ecnn_cont:
             model = Cont_G_UNet(
@@ -152,7 +152,9 @@ def run(settings: SettingsTraining):
         )
         try:
             solver.load_lr_schedule(
-                settings.destination / "learning_rate_history.csv", settings.case_2hp
+                settings.destination / "learning_rate_history.csv",
+                settings.case_2hp,
+                settings.always_load_default_lr_schedule,
             )
             times["time_initializations"] = time.perf_counter()
             solver.train(settings)
@@ -356,6 +358,14 @@ if __name__ == "__main__":
         type=int,
         default=-1,
         help="Limit number of data points. Negative means all points.",
+    )
+    parser.add_argument(
+        "--always_load_default_lr_schedule",
+        action="store_true",
+        help=(
+            "Always load processing/lr_schedules/default_lr_schedule*.csv at run start "
+            "instead of reusing destination/learning_rate_history.csv."
+        ),
     )
     parser.add_argument(
         "--equivariance_case",

@@ -45,6 +45,7 @@ class SettingsTraining:
     batch_size: int = 50
     lr_factor: float = 1.0
     num_data_points: int = -1
+    always_load_default_lr_schedule: bool = False
 
     def __post_init__(self):
         if self.case in ["finetune", "finetuning", "Finetune", "Finetuning"]:
